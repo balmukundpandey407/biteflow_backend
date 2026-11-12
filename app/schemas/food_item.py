@@ -7,6 +7,15 @@ class food_out(BaseModel):
     description: Optional[str]
     price: int
     image_url: str
+    is_veg: bool
 
+class food_in(BaseModel):
+    name: str
+    description: Optional[str]
+    price: int
+    image_url: str
+    is_veg: bool 
+
+    
     class Config:
         from_attributes = True
