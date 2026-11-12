@@ -2,8 +2,11 @@ from pydantic import BaseModel
 from typing import Optional
 
 class video_in (BaseModel):
-    title:str
-    description:Optional[str]
-    video_url:str
-    thumbnail_url:Optional[str]
-    food_item_id:str
+    title: Optional[str] = None
+    description: Optional[str] = None
+    video_url: str
+    thumbnail_url: Optional[str] = None
+    restaurant_id: Optional[str] = None
+    food_item_id: Optional[str] = None
+    dish_name: Optional[str] = None
+    price: Optional[int] = None
