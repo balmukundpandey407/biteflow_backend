@@ -1,28 +1,55 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   Bookmark,
-  CheckCircle2,
   CircleUserRound,
   MessageSquareText,
   Music,
+  ShoppingBag,
   Send,
   ThumbsUp,
-  Volume2,
-  VolumeX,
   X,
 } from 'lucide-react'
 
 const FEED_URL = 'https://crispy-waffle-7vjrgrx67pww2w55w-8000.app.github.dev/feed'
+const API_ORIGIN = new URL(FEED_URL).origin
+
+function getAuthHeaders() {
+  const token =
+    localStorage.getItem('access_token') ||
+    localStorage.getItem('token')
+
+  if (!token) {
+    throw new Error('Please log in to interact with reels.')
+  }
+
+  return { Authorization: `Bearer ${token}` }
+}
+
+async function requestInteraction(videoId, action, query = '') {
+  const url = `${API_ORIGIN}/video/${encodeURIComponent(videoId)}/${action}${query}`
+  const response = await fetch(url, { headers: getAuthHeaders() })
+
+  if (!response.ok) {
+    throw new Error(`Could not ${action} this reel (${response.status}).`)
+  }
+
+  return response
+}
 
 function Reel({ item }) {
   const sectionRef = useRef(null)
   const videoRef = useRef(null)
   const likeIconRef = useRef(null)
   const userPausedRef = useRef(false)
+  const tapTimeoutRef = useRef(null)
   const [isMuted, setIsMuted] = useState(true)
   const [isLiked, setIsLiked] = useState(false)
   const [isSaved, setIsSaved] = useState(false)
   const [isCommentOpen, setIsCommentOpen] = useState(false)
+  const [commentDraft, setCommentDraft] = useState('')
+  const [commentCount, setCommentCount] = useState(item.total_comments ?? 0)
+  const [interactionError, setInteractionError] = useState('')
+  const [pendingAction, setPendingAction] = useState('')
   const [shareError, setShareError] = useState('')
 
   useEffect(() => {
@@ -46,6 +73,8 @@ function Reel({ item }) {
     observer.observe(section)
     return () => observer.disconnect()
   }, [])
+
+  useEffect(() => () => clearTimeout(tapTimeoutRef.current), [])
 
   const food = item.food_item
   const restaurantName =
@@ -77,18 +106,84 @@ function Reel({ item }) {
     }
   }
 
-  const toggleLike = () => {
-    const willLike = !isLiked
-    setIsLiked(willLike)
-    if (willLike) {
-      likeIconRef.current?.animate(
-        [
-          { transform: 'scale(1)' },
-          { transform: 'scale(1.25)' },
-          { transform: 'scale(1)' },
-        ],
-        { duration: 300, easing: 'ease-out' },
+  const handleVideoTap = () => {
+    if (tapTimeoutRef.current) {
+      clearTimeout(tapTimeoutRef.current)
+      tapTimeoutRef.current = null
+      setIsMuted((muted) => !muted)
+      return
+    }
+
+    tapTimeoutRef.current = setTimeout(() => {
+      tapTimeoutRef.current = null
+      togglePlayback()
+    }, 300)
+  }
+
+  const animateLike = () => {
+    likeIconRef.current?.animate(
+      [
+        { transform: 'scale(1)' },
+        { transform: 'scale(1.25)' },
+        { transform: 'scale(1)' },
+      ],
+      { duration: 300, easing: 'ease-out' },
+    )
+  }
+
+  const likeVideo = async () => {
+    if (isLiked || pendingAction) return
+
+    setPendingAction('like')
+    setInteractionError('')
+    try {
+      await requestInteraction(item.id, 'like')
+      setIsLiked(true)
+      animateLike()
+    } catch (error) {
+      setInteractionError(error.message)
+      console.error('Unable to like reel', error)
+    } finally {
+      setPendingAction('')
+    }
+  }
+
+  const saveVideo = async () => {
+    if (isSaved || pendingAction) return
+
+    setPendingAction('save')
+    setInteractionError('')
+    try {
+      await requestInteraction(item.id, 'save')
+      setIsSaved(true)
+    } catch (error) {
+      setInteractionError(error.message)
+      console.error('Unable to save reel', error)
+    } finally {
+      setPendingAction('')
+    }
+  }
+
+  const submitComment = async (event) => {
+    event.preventDefault()
+    const comment = commentDraft.trim()
+    if (!comment || pendingAction) return
+
+    setPendingAction('comment')
+    setInteractionError('')
+    try {
+      await requestInteraction(
+        item.id,
+        'comment',
+        `?comment=${encodeURIComponent(comment)}`,
       )
+      setCommentCount((count) => count + 1)
+      setCommentDraft('')
+    } catch (error) {
+      setInteractionError(error.message)
+      console.error('Unable to comment on reel', error)
+    } finally {
+      setPendingAction('')
     }
   }
 
@@ -118,6 +213,7 @@ function Reel({ item }) {
       } else {
         throw new Error('Sharing and clipboard access are unavailable in this browser.')
       }
+      await requestInteraction(item.id, 'share')
     } catch (error) {
       if (error.name !== 'AbortError') {
         console.error('Unable to share reel', error)
@@ -141,7 +237,7 @@ function Reel({ item }) {
         loop
         muted={isMuted}
         playsInline
-        onClick={togglePlayback}
+        onClick={handleVideoTap}
         aria-label={item.title || dishName || 'Reel video'}
       />
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/10 via-transparent to-black/35" />
@@ -174,15 +270,6 @@ function Reel({ item }) {
         </div>
       </header>
 
-      <button
-        type="button"
-        onClick={() => setIsMuted((muted) => !muted)}
-        className="absolute right-3 top-[5.5rem] z-20 grid size-8 place-items-center rounded-full bg-black/45 text-white"
-        aria-label={isMuted ? 'Unmute video' : 'Mute video'}
-      >
-        {isMuted ? <VolumeX size={17} /> : <Volume2 size={17} />}
-      </button>
-
       <div className="mt-auto relative z-20 flex w-full flex-col">
         <div className="max-w-[75%] px-3.5 text-white drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">
           <div className="mb-1.5 flex items-center gap-2">
@@ -212,15 +299,18 @@ function Reel({ item }) {
             type="button"
             onClick={orderDish}
             disabled={!phone}
-            className="flex flex-col items-center disabled:cursor-not-allowed disabled:opacity-50"
+            className="flex flex-col items-center gap-1 disabled:cursor-not-allowed disabled:opacity-50"
             aria-label="Order"
           >
-            <CheckCircle2 size={28} />
-            <span className="mt-0.5 text-[11px] font-semibold">Order</span>
+            <span className="grid size-12 place-items-center rounded-full bg-[#FF6600] text-white shadow-lg shadow-orange-950/60 ring-2 ring-white/80">
+              <ShoppingBag size={25} strokeWidth={2.5} />
+            </span>
+            <span className="text-[11px] font-bold">Order</span>
           </button>
           <button
             type="button"
-            onClick={toggleLike}
+            onClick={likeVideo}
+            disabled={Boolean(pendingAction) || isLiked}
             className="flex flex-col items-center"
             aria-label={isLiked ? 'Unlike' : 'Like'}
             aria-pressed={isLiked}
@@ -232,7 +322,7 @@ function Reel({ item }) {
                   ? 'drop-shadow-[0_0_8px_rgba(255,102,0,0.6)]'
                   : ''
               }`}
-              fill={isLiked ? '#FF6600' : 'none'}
+              fill="none"
               stroke={isLiked ? '#FF6600' : 'currentColor'}
             />
             <span className="mt-0.5 text-[11px] font-semibold">Like</span>
@@ -248,9 +338,7 @@ function Reel({ item }) {
           >
             <MessageSquareText size={28} />
             <span className="mt-0.5 text-[11px] font-semibold">comment</span>
-            {item.total_comments != null && (
-              <span className="text-[10px]">{item.total_comments}</span>
-            )}
+            <span className="text-[10px]">{commentCount}</span>
           </button>
           <button
             type="button"
@@ -263,9 +351,10 @@ function Reel({ item }) {
           </button>
           <button
             type="button"
-            onClick={() => setIsSaved((saved) => !saved)}
+            onClick={saveVideo}
+            disabled={Boolean(pendingAction) || isSaved}
             className="flex flex-col items-center"
-            aria-label={isSaved ? 'Remove saved bookmark' : 'Save'}
+            aria-label={isSaved ? 'Saved' : 'Save'}
             aria-pressed={isSaved}
           >
             <Bookmark size={28} fill={isSaved ? 'currentColor' : 'none'} />
@@ -301,16 +390,27 @@ function Reel({ item }) {
             <textarea
               id={`comment-${item.id}`}
               rows={3}
+              value={commentDraft}
+              onChange={(event) => setCommentDraft(event.target.value)}
               placeholder="Add a comment..."
               className="w-full resize-none rounded-lg border border-neutral-300 p-3 text-sm outline-none focus:border-orange-500"
             />
+            <form onSubmit={submitComment} className="mt-3 flex justify-end">
+              <button
+                type="submit"
+                disabled={!commentDraft.trim() || pendingAction === 'comment'}
+                className="rounded-full bg-orange-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-50"
+              >
+                {pendingAction === 'comment' ? 'Sending…' : 'Post comment'}
+              </button>
+            </form>
           </section>
         </div>
       )}
 
-      {shareError && (
-        <p role="alert" className="absolute bottom-20 left-3 right-16 z-30 text-xs text-white">
-          {shareError}
+      {(shareError || interactionError) && (
+        <p role="alert" className="absolute bottom-20 left-3 right-16 z-30 rounded-lg bg-black/80 p-2 text-xs text-white">
+          {interactionError || shareError}
         </p>
       )}
     </section>

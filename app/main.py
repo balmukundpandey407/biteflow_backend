@@ -26,7 +26,7 @@ async def home ():
 app.include_router(auth_routes,tags=["Authentication"] )
 app.include_router(discovery_routes,tags=["Discovery"] )
 app.include_router(food_items_routes,tags=["user data"] )
-app.include_router(interactions_routes,tags=["user data"] )
+app.include_router(interactions_routes,tags=["Interactions"] )
 app.include_router(restaurants_routes,tags=["user data"] )
 app.include_router(user_routes,tags=["User data"] )
 app.include_router(video_routes,tags=["Video"] )
