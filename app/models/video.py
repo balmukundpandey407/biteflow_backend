@@ -3,7 +3,7 @@ from sqlalchemy.orm import relationship
 
 from app.database.db import Base
 from app.models.food_item import FoodItem
-from app.models.restaurants import Restaurant
+from app.models.restaurant import Restaurant
 from app.models.user import User
 
 class Video(Base):

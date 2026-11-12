@@ -7,23 +7,22 @@ from typing import Optional
 from app.database.db import get_db
 from app.models.food_item import FoodItem
 from app.models.video import Video
-from app.models.restaurants import Restaurant
+from app.models.restaurant import Restaurant
 
 discovery_routes = APIRouter(tags=["Discovery"])
-
-FEED_BATCH_SIZE = 5
-
 
 @discovery_routes.get(
     "/feed",
     status_code=status.HTTP_200_OK,
     summary="Get personalized discovery feed",
-    description="Fetches a batch of 5 ranked videos for the discovery feed using cursor-based pagination."
+    description="Fetches ranked videos for the discovery feed using offset pagination."
 )
 async def get_feed(
     lat: Optional[float] = Query(None, description="User current latitude"),
     lang: Optional[float] = Query(None, description="User current longitude"),
     cursor_score: Optional[float] = Query(None, description="Cursor score from the previous batch"),
+    limit: int = Query(5, ge=1, le=50),
+    offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db)
 ):
     # 1. Time decay calculation: hours since video creation
@@ -52,16 +51,19 @@ async def get_feed(
             .filter(Restaurant.latitude == lat, Restaurant.longitude == lang)
         )
 
-    # 4. Apply cursor filter for subsequent page fetches
+    # Keep accepting the legacy score cursor for existing clients.
     if cursor_score is not None:
         query = query.where(score_expr < cursor_score)
 
-    # 5. Order by score desc, with ID as a deterministic fallback tie-breaker
-    query = query.order_by(desc(score_expr), desc(Video.id)).limit(FEED_BATCH_SIZE)
+    query = query.order_by(desc(score_expr), desc(Video.id))
+    if cursor_score is None:
+        query = query.offset(offset)
+    query = query.limit(limit + 1)
 
-    # 6. Execute asynchronously
     result = await db.execute(query)
     rows = result.all()
+    has_more = len(rows) > limit
+    rows = rows[:limit]
 
     items = []
     for video, score in rows:
@@ -72,14 +74,8 @@ async def get_feed(
         video._transient_score = float(score)
         items.append(video)
 
-    # 7. Next cursor is the calculated score of the 5th item
-    next_cursor = (
-        round(float(rows[-1][1]), 4)
-        if len(items) == FEED_BATCH_SIZE
-        else None
-    )
-
     return {
         "items": items,
-        "next_cursor": next_cursor,
+        "next_offset": offset + len(items) if has_more else None,
+        "has_more": has_more,
     }
