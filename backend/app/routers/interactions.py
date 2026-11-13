@@ -32,7 +32,7 @@ async def record_interaction(
                 UserInteractions.interaction_type == interaction_type,
             )
         )
-        if existing_result.scalar_one_or_none() is not None:
+        if existing_result.scalars().first() is not None:
             return {"message": f"Bite {video_id} already {interaction_type}d."}
 
     if interaction_type == "like":
