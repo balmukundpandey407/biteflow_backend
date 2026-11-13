@@ -7,11 +7,11 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from alembic import context
 
-from backend.app.database.db import Base
+from app.database.db import Base
 import os
 from dotenv import load_dotenv
 
-from backend.app.models import food_item, user, user_interactions, video
+from app.models import food_item, order, restaurant, user_interactions, user, video
 
 load_dotenv()
 
@@ -31,7 +31,6 @@ if config.config_file_name is not None:
 # for 'autogenerate' support
 # from myapp import mymodel
 # target_metadata = mymodel.Base.metadata
-from backend.app.models import restaurant
 target_metadata = Base.metadata
 
 # other values from the config, defined by the needs of env.py,
