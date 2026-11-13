@@ -1,10 +1,7 @@
 from sqlalchemy import Column, Integer, Float, String, DateTime, ForeignKey
 from sqlalchemy.orm import relationship
 
-from backend.app.database.db import Base
-from backend.app.models.food_item import FoodItem
-from backend.app.models.restaurant import Restaurant
-from backend.app.models.user import User
+from app.database.db import Base
 
 class Video(Base):
     __tablename__ = "videos"

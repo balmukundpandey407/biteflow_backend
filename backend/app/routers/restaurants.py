@@ -2,9 +2,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.app.database.db import get_db
-from backend.app.models.food_item import FoodItem
-from backend.app.models.restaurant import Restaurant
+from app.database.db import get_db
+from app.models.food_item import FoodItem
+from app.models.restaurant import Restaurant
 
 restaurants_routes = APIRouter()
 

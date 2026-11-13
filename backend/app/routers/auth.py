@@ -5,10 +5,10 @@ from sqlalchemy import select
 from uuid import uuid4
 from datetime import datetime
 
-from backend.app.models.user import User
-from backend.app.database.db import get_db
-from backend.app.schemas.user import user_register, user_login, user_out
-from backend.app.authorization.security import hash_pw, verify_pw, sign_jwt, decode_jwt
+from app.models.user import User
+from app.database.db import get_db
+from app.schemas.user import user_register, user_login, user_out
+from app.authorization.security import hash_pw, verify_pw, sign_jwt, decode_jwt
 
 auth_routes = APIRouter()   
 

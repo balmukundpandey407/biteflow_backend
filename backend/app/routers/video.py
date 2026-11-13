@@ -5,12 +5,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.app.database.db import get_db
-from backend.app.models.food_item import FoodItem
-from backend.app.models.restaurant import Restaurant
-from backend.app.models.video import Video
-from backend.app.routers.auth import get_current_user
-from backend.app.schemas.video import video_in
+from app.database.db import get_db
+from app.models.food_item import FoodItem
+from app.models.restaurant import Restaurant
+from app.models.video import Video
+from app.routers.auth import get_current_user
+from app.schemas.video import video_in
 
 video_routes = APIRouter()
 

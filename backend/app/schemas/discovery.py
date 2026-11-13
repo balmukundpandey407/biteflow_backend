@@ -1,7 +1,7 @@
 from pydantic import BaseModel
 from typing import Optional
 
-from backend.app.schemas.food_item import food_out
+from app.schemas.food_item import food_out
 
 class feed_data_out(BaseModel):
     id : str

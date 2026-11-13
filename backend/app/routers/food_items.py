@@ -3,9 +3,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import datetime
 from uuid import uuid4
 
-from backend.app.database.db import get_db
-from backend.app.models import food_item
-from backend.app.schemas.food_item import food_out,food_in
+from app.database.db import get_db
+from app.models import food_item
+from app.schemas.food_item import food_out,food_in
 
 food_items_routes = APIRouter()
 

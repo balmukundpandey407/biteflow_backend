@@ -4,10 +4,10 @@ from sqlalchemy import select, func, desc
 from sqlalchemy.orm import selectinload
 from typing import Optional
 
-from backend.app.database.db import get_db
-from backend.app.models.food_item import FoodItem
-from backend.app.models.video import Video
-from backend.app.models.restaurant import Restaurant
+from app.database.db import get_db
+from app.models.food_item import FoodItem
+from app.models.video import Video
+from app.models.restaurant import Restaurant
 
 discovery_routes = APIRouter(tags=["Discovery"])
 
