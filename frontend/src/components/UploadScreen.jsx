@@ -8,26 +8,25 @@ import {
   Music,
   Plus,
   RotateCcw,
+  Search,
   Timer,
   X,
+  MapPin,
 } from 'lucide-react'
 
 const API_ORIGIN = 'https://crispy-waffle-7vjrgrx67pww2w55w-8000.app.github.dev'
 const RESTAURANTS_URL = `${API_ORIGIN}/restaurants`
-const CLOUDINARY_URL = 'https://api.cloudinary.com/v1_1/j37518cz/video/upload'
+const CLOUDINARY_CLOUD_NAME =
+  import.meta.env.VITE_CLOUDINARY_CLOUD_NAME || 'j37518cz'
+const CLOUDINARY_URL = `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/video/upload`
+const CLOUDINARY_UPLOAD_PRESET = 'biteflows_bites'
 const VIDEO_FILTERS = [
-  { name: 'Warm Food', shortName: 'Warm', css: 'saturate(1.2) sepia(0.12) hue-rotate(-8deg)' },
-  { name: 'Crispy Contrast', shortName: 'Crispy', css: 'contrast(1.2) saturate(1.15)' },
-  { name: 'Fresh Vibrant', shortName: 'Fresh', css: 'saturate(1.4) brightness(1.04)' },
   { name: 'Normal', shortName: 'Normal', css: 'none' },
+  { name: 'Warm', shortName: 'Warm', css: 'saturate(1.2) sepia(0.12) hue-rotate(-8deg)' },
+  { name: 'Crispy', shortName: 'Crispy', css: 'contrast(1.2) saturate(1.15)' },
+  { name: 'Fresh', shortName: 'Fresh', css: 'saturate(1.4) brightness(1.04)' },
+  { name: 'Vintage', shortName: 'Vintage', css: 'sepia(0.35) saturate(0.85) contrast(1.08)' },
 ]
-
-function responseError(data, fallback) {
-  if (Array.isArray(data?.detail)) {
-    return data.detail.map((entry) => entry.msg).join(' ')
-  }
-  return data?.detail || data?.error || fallback
-}
 
 function CameraPreview({ stream, filter }) {
   const ref = useRef(null)
@@ -65,6 +64,7 @@ function UploadScreen({ token, onClose, onPosted }) {
   const fileInputRef = useRef(null)
   const musicInputRef = useRef(null)
   const musicObjectUrlRef = useRef('')
+  const filterTouchStartXRef = useRef(null)
   const [cameraStream, setCameraStream] = useState(null)
   const [cameraError, setCameraError] = useState('')
   const [facingMode, setFacingMode] = useState('environment')
@@ -81,13 +81,17 @@ function UploadScreen({ token, onClose, onPosted }) {
   const [file, setFile] = useState(null)
   const [previewUrl, setPreviewUrl] = useState('')
   const [showDetails, setShowDetails] = useState(false)
+  const [wizardStep, setWizardStep] = useState('restaurant')
   const [restaurants, setRestaurants] = useState([])
+  const [restaurantSearch, setRestaurantSearch] = useState('')
+  const [dishSearch, setDishSearch] = useState('')
   const [selectedRestaurantId, setSelectedRestaurantId] = useState('')
   const [menuItems, setMenuItems] = useState([])
   const [selectedFoodItemId, setSelectedFoodItemId] = useState('')
   const [isAddingDish, setIsAddingDish] = useState(false)
   const [newDishName, setNewDishName] = useState('')
   const [newPrice, setNewPrice] = useState('')
+  const [title, setTitle] = useState('')
   const [caption, setCaption] = useState('')
   const [loadingRestaurants, setLoadingRestaurants] = useState(false)
   const [loadingMenu, setLoadingMenu] = useState(false)
@@ -159,6 +163,19 @@ function UploadScreen({ token, onClose, onPosted }) {
   }, [speed, previewUrl])
 
   const selectedFood = menuItems.find((food) => food.id === selectedFoodItemId)
+  const selectedRestaurant = restaurants.find(
+    (restaurant) => restaurant.id === selectedRestaurantId,
+  )
+  const filteredRestaurants = restaurants.filter((restaurant) =>
+    `${restaurant.name ?? ''} ${restaurant.area ?? ''} ${restaurant.address ?? ''} ${restaurant.description ?? ''}`
+      .toLowerCase()
+      .includes(restaurantSearch.trim().toLowerCase()),
+  )
+  const filteredMenuItems = menuItems.filter((food) =>
+    `${food.name ?? ''} ${food.description ?? ''}`
+      .toLowerCase()
+      .includes(dishSearch.trim().toLowerCase()),
+  )
 
   const setVideoFile = (videoFile) => {
     if (!videoFile) return
@@ -166,6 +183,7 @@ function UploadScreen({ token, onClose, onPosted }) {
     setFile(videoFile)
     setPreviewUrl(URL.createObjectURL(videoFile))
     setShowDetails(false)
+    setWizardStep('restaurant')
     setError('')
   }
 
@@ -322,20 +340,23 @@ function UploadScreen({ token, onClose, onPosted }) {
 
   const openDetails = async () => {
     setShowDetails(true)
+    setWizardStep('restaurant')
+    setError('')
     if (restaurants.length || loadingRestaurants) return
     setLoadingRestaurants(true)
     setError('')
     try {
       const response = await fetch(RESTAURANTS_URL)
       const data = await response.json()
-      if (!response.ok) throw new Error(responseError(data, 'Could not load restaurants.'))
+      if (!response.ok) throw new Error('Restaurant list is temporarily unavailable.')
       const availableRestaurants = Array.isArray(data)
         ? data
         : data.data || data.items || data.restaurants || []
       setRestaurants(availableRestaurants)
-      if (!availableRestaurants.length) setError('No restaurants are available.')
+      if (!availableRestaurants.length) setError('No restaurants are available right now.')
     } catch (restaurantError) {
-      setError(restaurantError.message || 'Could not load restaurants.')
+      console.error('Unable to load restaurants', restaurantError)
+      setError('Could not load restaurants. Check your connection and try again.')
     } finally {
       setLoadingRestaurants(false)
     }
@@ -358,13 +379,16 @@ function UploadScreen({ token, onClose, onPosted }) {
         `${RESTAURANTS_URL}/${encodeURIComponent(restaurantId)}/menu`,
       )
       const data = await response.json()
-      if (!response.ok) throw new Error(responseError(data, 'Could not load this menu.'))
+      if (!response.ok) throw new Error('This restaurant menu is temporarily unavailable.')
       const menu = Array.isArray(data) ? data : data.data || data.items || data.menu || []
       if (requestId !== menuRequestRef.current) return
       setMenuItems(menu)
+      setDishSearch('')
+      setWizardStep('dish')
     } catch (menuError) {
       if (requestId !== menuRequestRef.current) return
-      setError(menuError.message || 'Could not load this menu.')
+      console.error('Unable to load restaurant menu', menuError)
+      setError('Could not load this menu. Please try selecting the restaurant again.')
     } finally {
       if (requestId === menuRequestRef.current) setLoadingMenu(false)
     }
@@ -374,7 +398,7 @@ function UploadScreen({ token, onClose, onPosted }) {
     new Promise((resolve, reject) => {
       const formData = new FormData()
       formData.append('file', videoFile)
-      formData.append('upload_preset', 'bites')
+      formData.append('upload_preset', CLOUDINARY_UPLOAD_PRESET)
 
       const request = new XMLHttpRequest()
       request.open('POST', CLOUDINARY_URL)
@@ -402,6 +426,22 @@ function UploadScreen({ token, onClose, onPosted }) {
       request.send(formData)
     })
 
+  const continueToDetails = () => {
+    if (!isAddingDish && !selectedFoodItemId) {
+      setError('Choose a dish before continuing.')
+      return
+    }
+    if (isAddingDish && (!newDishName.trim() || newPrice === '' || Number(newPrice) < 0)) {
+      setError('Enter a dish name and valid price before continuing.')
+      return
+    }
+    setTitle((current) =>
+      current.trim() || (isAddingDish ? newDishName.trim() : selectedFood?.name || ''),
+    )
+    setError('')
+    setWizardStep('details')
+  }
+
   const postBite = async (event) => {
     event.preventDefault()
     if (!file || !selectedRestaurantId) {
@@ -414,6 +454,10 @@ function UploadScreen({ token, onClose, onPosted }) {
     }
     if (isAddingDish && (!newDishName.trim() || newPrice === '' || Number(newPrice) < 0)) {
       setError('Enter a dish name and valid price.')
+      return
+    }
+    if (!title.trim()) {
+      setError('Add a title for your Bite before publishing.')
       return
     }
     if (!token) {
@@ -435,7 +479,7 @@ function UploadScreen({ token, onClose, onPosted }) {
         '/upload/',
         '/upload/so_1,w_300,h_300,c_fill/',
       ).replace(/\.[^/.]+$/, '.jpg')
-      const response = await fetch(`${API_ORIGIN}/videos`, {
+      const response = await fetch(`${API_ORIGIN}/video`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -446,6 +490,7 @@ function UploadScreen({ token, onClose, onPosted }) {
           food_item_id: isAddingDish ? null : selectedFoodItemId,
           dish_name: isAddingDish ? newDishName.trim() : null,
           price: isAddingDish ? Number(newPrice) : null,
+          title: title.trim(),
           description: caption.trim(),
           video_url: videoUrl,
           thumbnail_url: thumbnailUrl,
@@ -453,39 +498,41 @@ function UploadScreen({ token, onClose, onPosted }) {
       })
       const data = await response.json().catch(() => ({}))
       if (!response.ok) {
-        throw new Error(responseError(data, `Could not post Bite (${response.status}).`))
+        throw new Error(
+          response.status === 401
+            ? 'Your session expired. Sign in again before publishing.'
+            : response.status === 404
+              ? 'The selected restaurant or dish is no longer available.'
+              : response.status === 422
+                ? 'Some Bite details are missing or invalid. Review them and try again.'
+                : 'Unable to publish right now. Please check your connection and try again.',
+        )
+      }
+      if (!data.id || !data.food_item?.id) {
+        throw new Error(
+          'Unable to publish right now. Please check your connection and try again.',
+        )
       }
       setProgress(100)
-      const selectedRestaurant = restaurants.find(
-        (restaurant) => restaurant.id === selectedRestaurantId,
-      )
-      const postedFood = {
-        ...(isAddingDish
-          ? {
-              id: data.food_item?.id,
-              name: newDishName.trim(),
-              price: Number(newPrice),
-              image_url: thumbnailUrl,
-            }
-          : selectedFood),
-        restaurants: {
-          name: selectedRestaurant?.name,
-          phone: selectedRestaurant?.phone,
-        },
-      }
       onPosted({
-        id: data.id ?? data.video?.id,
-        title: isAddingDish ? newDishName.trim() : selectedFood.name,
+        id: data.id,
+        food_item_id: data.food_item.id,
+        title: title.trim(),
         description: caption.trim(),
         video_url: videoUrl,
         thumbnail_url: thumbnailUrl,
         total_views: 0,
         total_likes: 0,
         total_comments: 0,
-        food_item: postedFood,
+        food_item: data.food_item,
       })
     } catch (uploadError) {
-      setError(uploadError.message || 'Unable to post Bite.')
+      console.error('Unable to publish Bite', uploadError)
+      setError(
+        uploadError instanceof TypeError
+          ? 'Unable to publish right now. Please check your connection and try again.'
+          : uploadError.message || 'Unable to publish right now. Please try again.',
+      )
     } finally {
       setUploading(false)
     }
@@ -516,7 +563,7 @@ function UploadScreen({ token, onClose, onPosted }) {
           loop
           muted
           playsInline
-          style={{ playbackRate: speed, filter: activeFilter.css }}
+          style={{ filter: activeFilter.css }}
         />
       ) : cameraStream ? (
         <CameraPreview stream={cameraStream} filter={activeFilter.css} />
@@ -653,11 +700,7 @@ function UploadScreen({ token, onClose, onPosted }) {
 
       {!showDetails && (
         <div
-          className={`absolute z-20 flex items-center ${
-            file
-              ? 'bottom-8 right-7'
-              : 'inset-x-0 bottom-8 justify-around px-4'
-          }`}
+          className="absolute inset-x-0 bottom-7 z-20 h-40"
         >
           {!file && (
             <>
@@ -665,7 +708,7 @@ function UploadScreen({ token, onClose, onPosted }) {
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
                 disabled={recording}
-                className="grid size-12 place-items-center rounded-full bg-[#FF6600]/25 text-white disabled:opacity-40"
+                className="absolute bottom-4 left-7 grid size-12 place-items-center rounded-full bg-[#FF6600]/25 text-white disabled:opacity-40"
                 aria-label="Choose video from gallery"
               >
                 <Images size={24} />
@@ -677,7 +720,7 @@ function UploadScreen({ token, onClose, onPosted }) {
                 className="hidden"
                 onChange={chooseGalleryVideo}
               />
-              <div className="flex flex-col items-center">
+              <div className="absolute bottom-0 left-1/2 flex -translate-x-1/2 flex-col items-center">
                 <button
                   type="button"
                   onClick={recording ? stopRecording : startRecording}
@@ -698,27 +741,51 @@ function UploadScreen({ token, onClose, onPosted }) {
               </div>
             </>
           )}
-          <div className="flex items-center gap-3">
-            {[1, -1].map((direction) => (
+          <div
+            className="absolute inset-x-2 top-0 flex h-14 items-start justify-center gap-1 touch-none"
+            onTouchStart={(event) => {
+              filterTouchStartXRef.current = event.touches[0]?.clientX ?? null
+            }}
+            onTouchEnd={(event) => {
+              const startX = filterTouchStartXRef.current
+              const endX = event.changedTouches[0]?.clientX
+              filterTouchStartXRef.current = null
+              if (startX === null || endX === undefined || Math.abs(endX - startX) < 20) return
+              event.preventDefault()
+              changeFilter(endX < startX ? 1 : -1)
+            }}
+            aria-label="Camera filters"
+          >
+            {VIDEO_FILTERS.map((filter, index) => {
+              const active = index === filterIndex
+              return (
               <button
-                key={direction}
+                key={filter.name}
                 type="button"
-                onClick={() => changeFilter(direction)}
-                className="flex flex-col items-center gap-1 text-white"
-                aria-label={`${direction === 1 ? 'Next' : 'Previous'} filter. Current filter: ${activeFilter.name}`}
-                title={activeFilter.name}
+                onClick={() => setFilterIndex(index)}
+                className={`flex w-14 shrink-0 flex-col items-center gap-0.5 rounded-xl border px-1 py-1 text-white backdrop-blur-md transition-all duration-200 ${
+                  active
+                    ? 'border-[#FF6600] bg-black/65'
+                    : 'border-white/20 bg-black/35 opacity-80'
+                }`}
+                aria-label={`Preview ${filter.name} filter`}
+                aria-pressed={active}
+                title={filter.name}
               >
-                <span className="grid size-12 place-items-center rounded-full border-2 border-[#FF6600]/70 bg-black/25 backdrop-blur-sm">
+                <span className={`grid place-items-center rounded-full border-2 bg-black/35 ${
+                  active ? 'size-9 border-[#FF6600]' : 'size-8 border-white/70'
+                }`}>
                   <span
-                    className="size-8 rounded-full border border-white/80 bg-gradient-to-br from-amber-300 via-orange-500 to-rose-700"
-                    style={{ filter: activeFilter.css }}
+                    className="size-6 rounded-full border border-white/80 bg-gradient-to-br from-amber-300 via-orange-500 to-rose-700"
+                    style={{ filter: filter.css }}
                   />
                 </span>
-                <span className="max-w-14 truncate text-[9px] font-semibold">
-                  {activeFilter.shortName}
+                <span className="max-w-full truncate text-[8px] font-bold leading-tight">
+                  {filter.shortName}
                 </span>
               </button>
-            ))}
+              )
+            })}
           </div>
         </div>
       )}
@@ -727,7 +794,7 @@ function UploadScreen({ token, onClose, onPosted }) {
         <button
           type="button"
           onClick={openDetails}
-          className="absolute bottom-28 left-1/2 z-30 -translate-x-1/2 rounded-full bg-[#FF6600] px-8 py-3 font-extrabold text-white shadow-xl"
+          className="absolute bottom-8 left-1/2 z-30 -translate-x-1/2 rounded-full bg-[#FF6600] px-8 py-3 font-extrabold text-white shadow-xl"
         >
           Next
         </button>
@@ -744,168 +811,312 @@ function UploadScreen({ token, onClose, onPosted }) {
       )}
 
       {showDetails && (
-        <div className="absolute inset-0 z-40 flex items-end bg-black/50 backdrop-blur-sm">
-          <section className="max-h-[88dvh] w-full overflow-y-auto rounded-t-3xl border-t border-white/15 bg-neutral-950/95 px-5 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-5">
-            <div className="mb-5 flex items-center justify-between">
-              <button
-                type="button"
-                onClick={() => setShowDetails(false)}
-                className="grid size-9 place-items-center rounded-full bg-white/10"
-                aria-label="Back to video"
-              >
-                <ArrowLeft size={20} />
-              </button>
-              <h2 className="text-lg font-extrabold">Dish details</h2>
-              <button
-                type="button"
-                onClick={onClose}
-                className="grid size-9 place-items-center rounded-full bg-white/10"
-                aria-label="Close upload"
-              >
-                <X size={20} />
-              </button>
+        <div className="fixed inset-0 z-40 flex flex-col overflow-hidden bg-neutral-950/98 text-white">
+          <div className="flex items-center gap-3 border-b border-white/10 px-4 pb-4 pt-[max(1rem,env(safe-area-inset-top))]">
+            <button
+              type="button"
+              onClick={() => {
+                if (wizardStep === 'restaurant') setShowDetails(false)
+                else if (wizardStep === 'dish') setWizardStep('restaurant')
+                else setWizardStep('dish')
+                setError('')
+              }}
+              className="grid size-10 shrink-0 place-items-center rounded-full border border-white/15 bg-white/5"
+              aria-label={wizardStep === 'restaurant' ? 'Back to camera' : 'Previous step'}
+              disabled={uploading}
+            >
+              <ArrowLeft size={20} />
+            </button>
+            <div className="min-w-0 flex-1">
+              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-orange-300">
+                Step {wizardStep === 'restaurant' ? 1 : wizardStep === 'dish' ? 2 : 3} of 3
+              </p>
+              <h2 className="truncate text-lg font-extrabold">
+                {wizardStep === 'restaurant'
+                  ? 'Select Restaurant'
+                  : wizardStep === 'dish'
+                    ? 'Select Dish'
+                    : 'Bite details & publish'}
+              </h2>
             </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="grid size-10 shrink-0 place-items-center rounded-full border border-white/15 bg-white/5"
+              aria-label="Close upload"
+              disabled={uploading}
+            >
+              <X size={20} />
+            </button>
+          </div>
 
-            <form onSubmit={postBite} className="space-y-4">
-              <label className="block text-sm font-semibold text-white/80">
-                Select Restaurant
-                <select
-                  required
-                  value={selectedRestaurantId}
-                  disabled={loadingRestaurants}
-                  onChange={(event) => selectRestaurant(event.target.value)}
-                  className="mt-1.5 w-full rounded-xl border border-white/15 bg-neutral-900 px-3.5 py-3 text-sm text-white outline-none focus:border-[#FF6600]"
-                >
-                  <option value="">
-                    {loadingRestaurants ? 'Loading restaurants…' : 'Select Restaurant'}
-                  </option>
-                  {restaurants.map((restaurant) => (
-                    <option key={restaurant.id} value={restaurant.id}>
-                      {restaurant.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              {selectedRestaurantId && (
-                <div>
-                  <p className="mb-2 text-sm font-semibold text-white/80">Choose a dish</p>
-                  {loadingMenu ? (
-                    <p className="text-sm text-white/55">Loading menu…</p>
-                  ) : (
-                    <div className="flex flex-wrap gap-2">
-                      {menuItems.map((food) => (
-                        <button
-                          key={food.id}
-                          type="button"
-                          onClick={() => {
-                            setSelectedFoodItemId(food.id)
-                            setIsAddingDish(false)
-                          }}
-                          className={`rounded-full border px-3 py-2 text-xs font-semibold ${
-                            selectedFoodItemId === food.id && !isAddingDish
-                              ? 'border-[#FF6600] bg-[#FF6600]/20 text-white'
-                              : 'border-white/20 bg-white/5 text-white/75'
-                          }`}
-                        >
-                          {food.name} — ₹{food.price}
-                        </button>
-                      ))}
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setIsAddingDish(true)
-                          setSelectedFoodItemId('')
-                        }}
-                        className={`flex items-center gap-1 rounded-full border px-3 py-2 text-xs font-bold ${
-                          isAddingDish
-                            ? 'border-[#FF6600] bg-[#FF6600]/20 text-white'
-                            : 'border-white/20 bg-white/5 text-white/75'
-                        }`}
-                      >
-                        <Plus size={14} />
-                        Add New Dish
-                      </button>
-                    </div>
-                  )}
-                </div>
-              )}
-              {isAddingDish && (
-                <>
-                  <label className="block text-sm font-semibold text-white/80">
-                    New Dish Name
-                    <input
-                      required
-                      value={newDishName}
-                      onChange={(event) => setNewDishName(event.target.value)}
-                      className="mt-1.5 w-full rounded-xl border border-white/15 bg-white/5 px-3.5 py-3 text-sm text-white outline-none focus:border-[#FF6600]"
-                      placeholder="Dish name"
-                    />
-                  </label>
-                  <label className="block text-sm font-semibold text-white/80">
-                    Price (₹)
-                    <input
-                      required
-                      type="number"
-                      min="0"
-                      step="1"
-                      inputMode="decimal"
-                      value={newPrice}
-                      onChange={(event) => setNewPrice(event.target.value)}
-                      className="mt-1.5 w-full rounded-xl border border-white/15 bg-white/5 px-3.5 py-3 text-sm text-white outline-none focus:border-[#FF6600]"
-                      placeholder="Price"
-                    />
-                  </label>
-                </>
-              )}
-              {selectedFoodItemId && !isAddingDish && (
-                <p className="text-sm font-semibold text-orange-300">
-                  {selectedFood?.name} — ₹{selectedFood?.price}
-                </p>
-              )}
-              <label className="block text-sm font-semibold text-white/80">
-                Caption / Hashtags
-                <textarea
-                  rows={3}
-                  value={caption}
-                  onChange={(event) => setCaption(event.target.value)}
-                  className="mt-1.5 w-full resize-none rounded-xl border border-white/15 bg-white/5 px-3.5 py-3 text-sm text-white outline-none focus:border-[#FF6600]"
-                  placeholder="Tell everyone about this Bite #food"
+          <div className="h-1 w-full bg-white/10">
+            <div
+              className="h-full bg-[#FF6600] transition-all duration-300"
+              style={{
+                width: `${wizardStep === 'restaurant' ? 33 : wizardStep === 'dish' ? 66 : 100}%`,
+              }}
+            />
+          </div>
+
+          {wizardStep === 'restaurant' && (
+            <section className="flex min-h-0 flex-1 flex-col px-4 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-5">
+              <p className="mb-4 text-sm text-white/60">
+                Search by restaurant name or campus area.
+              </p>
+              <label className="flex items-center gap-2 rounded-2xl border border-white/15 bg-white/5 px-4 py-3">
+                <Search size={18} className="text-orange-300" />
+                <input
+                  autoFocus
+                  value={restaurantSearch}
+                  onChange={(event) => setRestaurantSearch(event.target.value)}
+                  placeholder="Search restaurants or areas"
+                  className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-white/40"
+                  aria-label="Search restaurants"
                 />
+                {loadingRestaurants && (
+                  <span className="size-4 animate-spin rounded-full border-2 border-white/30 border-t-orange-400" />
+                )}
               </label>
-
               {error && (
-                <p role="alert" className="rounded-lg bg-red-500/10 px-3 py-2 text-sm text-red-300">
+                <p role="alert" className="mt-3 rounded-xl bg-red-500/10 px-3 py-2 text-sm text-red-200">
                   {error}
                 </p>
               )}
-              {uploading && (
-                <div>
-                  <div className="mb-1 flex justify-between text-xs text-white/70">
-                    <span>Uploading your Bite…</span>
-                    <span>{progress}%</span>
+              <div className="mt-4 min-h-0 flex-1 space-y-2 overflow-y-auto pb-2">
+                {filteredRestaurants.map((restaurant) => (
+                  <button
+                    key={restaurant.id}
+                    type="button"
+                    disabled={loadingMenu}
+                    onClick={() => selectRestaurant(restaurant.id)}
+                    className="flex w-full items-center gap-3 rounded-2xl border border-white/10 bg-white/5 p-4 text-left transition hover:border-orange-400/50 hover:bg-white/10 disabled:opacity-50"
+                  >
+                    <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-orange-500/15 text-orange-300">
+                      <MapPin size={20} />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-bold">{restaurant.name}</span>
+                      <span className="mt-1 block line-clamp-2 text-xs text-white/55">
+                        {restaurant.area || restaurant.address || restaurant.description || 'Campus restaurant'}
+                      </span>
+                    </span>
+                    {loadingMenu && selectedRestaurantId === restaurant.id ? (
+                      <span className="size-4 animate-spin rounded-full border-2 border-white/30 border-t-orange-400" />
+                    ) : (
+                      <span className="text-xs font-bold text-orange-300">Select</span>
+                    )}
+                  </button>
+                ))}
+                {!loadingRestaurants && !filteredRestaurants.length && (
+                  <p className="rounded-2xl border border-white/10 bg-white/5 p-5 text-center text-sm text-white/55">
+                    {restaurants.length
+                      ? 'No restaurants match your search.'
+                      : 'No restaurants are available right now.'}
+                  </p>
+                )}
+              </div>
+            </section>
+          )}
+
+          {wizardStep === 'dish' && (
+            <section className="flex min-h-0 flex-1 flex-col px-4 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-5">
+              <p className="mb-3 truncate text-sm font-semibold text-orange-200">
+                {selectedRestaurant?.name}
+              </p>
+              <label className="flex items-center gap-2 rounded-2xl border border-white/15 bg-white/5 px-4 py-3">
+                <Search size={18} className="text-orange-300" />
+                <input
+                  value={dishSearch}
+                  onChange={(event) => setDishSearch(event.target.value)}
+                  placeholder="Search this menu"
+                  className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-white/40"
+                  aria-label="Search menu"
+                />
+              </label>
+              <div className="mt-4 min-h-0 flex-1 space-y-2 overflow-y-auto pb-3">
+                {filteredMenuItems.map((food) => {
+                  const selected = selectedFoodItemId === food.id && !isAddingDish
+                  const isVeg = ['true', '1', 'yes', 'veg', 'vegetarian'].includes(
+                    String(food.is_veg).toLowerCase(),
+                  )
+                  return (
+                    <button
+                      key={food.id}
+                      type="button"
+                      onClick={() => {
+                        setSelectedFoodItemId(food.id)
+                        setIsAddingDish(false)
+                        setTitle(food.name || '')
+                        setError('')
+                      }}
+                      className={`flex w-full items-center gap-3 rounded-2xl border p-3 text-left transition ${
+                        selected
+                          ? 'border-[#FF6600] bg-[#FF6600]/10'
+                          : 'border-white/10 bg-white/5 hover:bg-white/10'
+                      }`}
+                      aria-pressed={selected}
+                    >
+                      <img
+                        src={food.image_url || undefined}
+                        alt=""
+                        className="size-16 shrink-0 rounded-xl bg-white/10 object-cover"
+                      />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-bold">{food.name}</span>
+                        <span className="mt-1 block text-sm font-extrabold text-orange-300">
+                          ₹{food.price}
+                        </span>
+                        <span className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                          isVeg ? 'bg-emerald-500/20 text-emerald-200' : 'bg-red-500/20 text-red-200'
+                        }`}>
+                          {isVeg ? 'VEG' : 'NON-VEG'}
+                        </span>
+                      </span>
+                      {selected && <span className="text-xs font-bold text-orange-300">Selected</span>}
+                    </button>
+                  )
+                })}
+                {!loadingMenu && !filteredMenuItems.length && !isAddingDish && (
+                  <p className="rounded-2xl border border-white/10 bg-white/5 p-4 text-center text-sm text-white/55">
+                    No dishes match your search. You can add a new dish below.
+                  </p>
+                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsAddingDish(true)
+                    setSelectedFoodItemId('')
+                    setTitle(newDishName.trim())
+                  }}
+                  className={`flex w-full items-center justify-center gap-2 rounded-2xl border border-dashed py-4 text-sm font-bold ${
+                    isAddingDish
+                      ? 'border-[#FF6600] bg-[#FF6600]/10 text-orange-200'
+                      : 'border-white/20 text-white/75'
+                  }`}
+                >
+                  <Plus size={17} />
+                  Add New Dish
+                </button>
+                {isAddingDish && (
+                  <div className="space-y-3 rounded-2xl border border-white/10 bg-white/5 p-4">
+                    <label className="block text-xs font-semibold text-white/75">
+                      New dish name
+                      <input
+                        value={newDishName}
+                        onChange={(event) => {
+                          setNewDishName(event.target.value)
+                          setTitle(event.target.value)
+                        }}
+                        placeholder="Dish name"
+                        className="mt-1.5 w-full rounded-xl border border-white/15 bg-black/20 px-3 py-3 text-sm text-white outline-none placeholder:text-white/40 focus:border-orange-400"
+                      />
+                    </label>
+                    <label className="block text-xs font-semibold text-white/75">
+                      Price (₹)
+                      <input
+                        type="number"
+                        min="0"
+                        step="1"
+                        inputMode="decimal"
+                        value={newPrice}
+                        onChange={(event) => setNewPrice(event.target.value)}
+                        placeholder="Price"
+                        className="mt-1.5 w-full rounded-xl border border-white/15 bg-black/20 px-3 py-3 text-sm text-white outline-none placeholder:text-white/40 focus:border-orange-400"
+                      />
+                    </label>
                   </div>
-                  <div className="h-2 overflow-hidden rounded-full bg-white/15">
-                    <div className="h-full bg-[#FF6600] transition-[width]" style={{ width: `${progress}%` }} />
+                )}
+              </div>
+              {error && (
+                <p role="alert" className="mb-3 rounded-xl bg-red-500/10 px-3 py-2 text-sm text-red-200">
+                  {error}
+                </p>
+              )}
+              <button
+                type="button"
+                onClick={continueToDetails}
+                disabled={loadingMenu || (!selectedFoodItemId && !isAddingDish)}
+                className="w-full rounded-xl bg-[#FF6600] py-3.5 text-sm font-extrabold disabled:opacity-50"
+              >
+                Continue to details
+              </button>
+            </section>
+          )}
+
+          {wizardStep === 'details' && (
+            <section className="min-h-0 flex-1 overflow-y-auto px-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-4">
+              <form onSubmit={postBite} className="space-y-4">
+                <div className="overflow-hidden rounded-2xl border border-white/10 bg-white/5">
+                  <video
+                    src={previewUrl || undefined}
+                    className="h-48 w-full bg-black object-cover"
+                    poster={previewUrl ? undefined : ''}
+                    controls
+                    playsInline
+                    muted
+                  />
+                  <div className="flex items-center justify-between gap-3 px-3 py-2.5">
+                    <span className="truncate text-xs font-semibold text-white/70">
+                      {selectedRestaurant?.name} · {isAddingDish ? newDishName : selectedFood?.name}
+                    </span>
+                    <span className="shrink-0 rounded-full bg-orange-500/15 px-2.5 py-1 text-[10px] font-bold text-orange-200">
+                      {file?.name || 'Video preview'}
+                    </span>
                   </div>
                 </div>
-              )}
-
-              <button
-                type="submit"
-                disabled={
-                  uploading ||
-                  loadingRestaurants ||
-                  loadingMenu ||
-                  !selectedRestaurantId ||
-                  (!selectedFoodItemId && !isAddingDish)
-                }
-                className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#FF6600] py-3.5 text-sm font-extrabold text-white disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <Plus size={18} />
-                {uploading ? 'Posting…' : 'Post Bite'}
-              </button>
-            </form>
-          </section>
+                <label className="block text-xs font-semibold text-white/75">
+                  Title
+                  <input
+                    required
+                    value={title}
+                    onChange={(event) => setTitle(event.target.value)}
+                    maxLength={120}
+                    placeholder="Give your Bite a title"
+                    className="mt-1.5 w-full rounded-xl border border-white/15 bg-white/5 px-3.5 py-3 text-sm text-white outline-none placeholder:text-white/40 focus:border-[#FF6600]"
+                  />
+                </label>
+                <label className="block text-xs font-semibold text-white/75">
+                  Caption / Description & Hashtags
+                  <textarea
+                    rows={4}
+                    value={caption}
+                    onChange={(event) => setCaption(event.target.value)}
+                    maxLength={1000}
+                    placeholder="Tell everyone about this Bite #food"
+                    className="mt-1.5 w-full resize-none rounded-xl border border-white/15 bg-white/5 px-3.5 py-3 text-sm text-white outline-none placeholder:text-white/40 focus:border-[#FF6600]"
+                  />
+                </label>
+                {error && (
+                  <p role="alert" className="rounded-xl bg-red-500/10 px-3 py-2 text-sm text-red-200">
+                    {error}
+                  </p>
+                )}
+                {uploading && (
+                  <div className="rounded-xl border border-white/10 bg-white/5 p-3">
+                    <div className="mb-2 flex justify-between text-xs text-white/70">
+                      <span>Publishing your Bite…</span>
+                      <span>{progress}%</span>
+                    </div>
+                    <div className="h-2 overflow-hidden rounded-full bg-white/15">
+                      <div
+                        className="h-full bg-[#FF6600] transition-[width]"
+                        style={{ width: `${progress}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
+                <button
+                  type="submit"
+                  disabled={uploading || !title.trim()}
+                  className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#FF6600] py-3.5 text-sm font-extrabold disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Plus size={18} />
+                  {uploading ? 'Publishing…' : 'Post Bite'}
+                </button>
+              </form>
+            </section>
+          )}
         </div>
       )}
     </div>

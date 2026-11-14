@@ -16,6 +16,7 @@ import {
 import UploadScreen from './UploadScreen.jsx'
 import Home from './Home.jsx'
 import Profile from './Profile.jsx'
+import Settings from './Settings.jsx'
 
 const FEED_URL = 'https://crispy-waffle-7vjrgrx67pww2w55w-8000.app.github.dev/feed'
 const API_ORIGIN = 'https://crispy-waffle-7vjrgrx67pww2w55w-8000.app.github.dev'
@@ -44,7 +45,14 @@ async function requestInteraction(videoId, action, token, query = '') {
   }
 
   if (!response.ok) {
-    const data = await response.json().catch(() => ({}))
+    const body = await response.text()
+    console.error(`Biteflow ${action} request failed: HTTP ${response.status}`, body)
+    let data
+    try {
+      data = JSON.parse(body)
+    } catch {
+      data = { detail: body }
+    }
     const error = new Error(
       data.detail || data.error || `Could not ${action} this Bite (${response.status}).`,
     )
@@ -676,10 +684,7 @@ function OrderSheet({ reel, onClose, onRequireAuth, onSuccess }) {
           try {
             response = await fetch(`${API_ORIGIN}/orders`, {
               method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${token}`,
-              },
+              headers: getAuthHeaders(token),
               body: JSON.stringify({
                 food_item_id: reel.food_item_id ?? food?.id,
                 video_id: reel.id ?? null,
@@ -693,8 +698,15 @@ function OrderSheet({ reel, onClose, onRequireAuth, onSuccess }) {
               { cause: requestError },
             )
           }
-          const data = await response.json().catch(() => ({}))
+          const body = await response.text()
+          let data
+          try {
+            data = body ? JSON.parse(body) : {}
+          } catch {
+            data = { detail: body }
+          }
           if (!response.ok) {
+            console.error(`Biteflow order request failed: HTTP ${response.status}`, body)
             const detail = Array.isArray(data.detail)
               ? data.detail.map((entry) => entry.msg).join(' ')
               : data.detail || data.error
@@ -824,6 +836,7 @@ function Feed({ activeTab, onActiveTabChange, createRequest }) {
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false)
   const [pendingAction, setPendingAction] = useState(null)
   const [uploadOpen, setUploadOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const [activeOrderReel, setActiveOrderReel] = useState(null)
   const [orderToast, setOrderToast] = useState('')
   const requestedOffsetsRef = useRef(new Set())
@@ -1009,6 +1022,7 @@ function Feed({ activeTab, onActiveTabChange, createRequest }) {
           reels={reels}
           loading={loading}
           error={error}
+          token={token}
           onOpenFeed={openBites}
           onOrder={openOrder}
         />
@@ -1018,6 +1032,7 @@ function Feed({ activeTab, onActiveTabChange, createRequest }) {
           token={token}
           onLogin={() => setIsAuthModalOpen(true)}
           onCreate={openUpload}
+          onOpenSettings={() => setSettingsOpen(true)}
           reels={reels}
           onOpenBites={openBites}
           onOrder={openOrder}
@@ -1079,6 +1094,17 @@ function Feed({ activeTab, onActiveTabChange, createRequest }) {
           onClose={() => setActiveOrderReel(null)}
           onRequireAuth={requireAuth}
           onSuccess={closeOrderWithToast}
+        />
+      )}
+      {settingsOpen && (
+        <Settings
+          token={token}
+          onClose={() => setSettingsOpen(false)}
+          onLogout={() => {
+            localStorage.removeItem('biteflow_token')
+            setToken(null)
+            setSettingsOpen(false)
+          }}
         />
       )}
       {orderToast && (

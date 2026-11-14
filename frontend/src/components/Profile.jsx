@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
 import {
   Check,
-  ChevronRight,
   CircleUserRound,
+  Menu,
   Pencil,
   Play,
+  Plus,
   ShoppingBag,
 } from 'lucide-react'
 
@@ -49,7 +50,7 @@ function getItems(data) {
   return data.items || data.videos || data.data || []
 }
 
-function Profile({ token, onLogin, onCreate, reels, onOpenBites, onOrder }) {
+function Profile({ token, onLogin, onCreate, onOpenSettings, reels, onOpenBites, onOrder }) {
   const [activeSection, setActiveSection] = useState('bites')
   const [activeBiteFilter, setActiveBiteFilter] = useState('mine')
   const [profileData, setProfileData] = useState({
@@ -61,6 +62,25 @@ function Profile({ token, onLogin, onCreate, reels, onOpenBites, onOrder }) {
   })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [preferences, setPreferences] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('biteflow_profile_preferences') || '{}')
+    } catch {
+      return {}
+    }
+  })
+
+  useEffect(() => {
+    const refreshPreferences = () => {
+      try {
+        setPreferences(JSON.parse(localStorage.getItem('biteflow_profile_preferences') || '{}'))
+      } catch {
+        setPreferences({})
+      }
+    }
+    window.addEventListener('biteflow-preferences-changed', refreshPreferences)
+    return () => window.removeEventListener('biteflow-preferences-changed', refreshPreferences)
+  }, [])
 
   useEffect(() => {
     if (!token) return undefined
@@ -130,25 +150,43 @@ function Profile({ token, onLogin, onCreate, reels, onOpenBites, onOrder }) {
         <h1 className="text-xl font-extrabold">Profile</h1>
         <div className="flex items-center gap-4">
           <button type="button" aria-label="Create Bite" onClick={onCreate}>
-            <Pencil size={22} />
+            <Plus size={24} />
           </button>
-          <button type="button" aria-label="Profile settings">
-            <ChevronRight size={22} />
+          <button type="button" aria-label="Open settings" onClick={onOpenSettings}>
+            <Menu size={22} />
           </button>
         </div>
       </header>
 
       <section className="flex items-center gap-4 px-5 py-7">
-        <span className="grid size-24 shrink-0 place-items-center rounded-full border border-orange-500/20 bg-white/85 text-[#FF6600] shadow-sm backdrop-blur-md">
-          <CircleUserRound size={66} strokeWidth={1.7} />
-        </span>
+        {preferences.avatar ? (
+          <img
+            src={preferences.avatar}
+            alt=""
+            className="size-24 shrink-0 rounded-full border border-orange-500/20 object-cover"
+          />
+        ) : (
+          <span className="grid size-24 shrink-0 place-items-center rounded-full border border-orange-500/20 bg-white/85 text-[#FF6600] shadow-sm backdrop-blur-md">
+            <CircleUserRound size={66} strokeWidth={1.7} />
+          </span>
+        )}
         <div className="min-w-0 flex-1">
-          <p className="truncate text-xl font-semibold">
-            {profileData.user
-              ? `${profileData.user.first_name || ''} ${profileData.user.last_name || ''}`.trim() ||
-                'Biteflow Member'
-              : 'Biteflow Member'}
-          </p>
+          <div className="flex min-w-0 items-center gap-2">
+            <p className="truncate text-xl font-semibold">
+              {preferences.displayName || (profileData.user
+                ? `${profileData.user.first_name || ''} ${profileData.user.last_name || ''}`.trim() ||
+                  'Biteflow Member'
+                : 'Biteflow Member')}
+            </p>
+            <button
+              type="button"
+              onClick={onOpenSettings}
+              aria-label="Edit profile"
+              className="grid size-8 shrink-0 place-items-center rounded-full text-[#FF6600]"
+            >
+              <Pencil size={17} />
+            </button>
+          </div>
           <p className="mt-1 text-sm text-neutral-500">
             {token ? 'Your Biteflow profile' : 'Sign in to personalize your profile'}
           </p>

@@ -2,25 +2,37 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Filter,
   MapPin,
-  Menu,
   Search,
   ShoppingBag,
   X,
   LocateFixed,
   ChevronRight,
-  LogOut,
-  UserRound,
+  Pencil,
 } from 'lucide-react'
+import { rankBites, rankDishes } from '../utils/recommendations.js'
 
+const API_ORIGIN = 'https://crispy-waffle-7vjrgrx67pww2w55w-8000.app.github.dev'
 const CATEGORIES = ['Maggi', 'Rolls', 'Coffee', 'Thali', 'Momos']
 const POPULAR_CRAVINGS = ['Maggi', 'Chole bhature', 'Momos', 'Cold coffee']
-const SETTINGS_ITEMS = [
-  'Account',
-  'Personalization',
-  'Notifications',
-  'Privacy & Security',
-]
 const LOCATION_KEY = 'biteflow_location'
+const SEARCH_HISTORY_KEY = 'biteflow_search_history'
+const SEARCH_PLACEHOLDERS = ['Chole bhature ...?', 'Crispy Chicken Roll ...?']
+
+function getSearchHistory() {
+  try {
+    const history = JSON.parse(localStorage.getItem(SEARCH_HISTORY_KEY) || '[]')
+    return Array.isArray(history) ? history : []
+  } catch {
+    return []
+  }
+}
+
+function getStoredLocation() {
+  const savedLocation = localStorage.getItem(LOCATION_KEY) || ''
+  return /^-?\d+(?:\.\d+)?\s*,\s*-?\d+(?:\.\d+)?$/.test(savedLocation)
+    ? ''
+    : savedLocation
+}
 
 function isVegetarian(value) {
   return ['true', '1', 'yes', 'veg', 'vegetarian'].includes(
@@ -34,29 +46,33 @@ function isNonVegetarian(value) {
   )
 }
 
-function Home({ reels, loading, error, onOpenFeed, onOrder }) {
+function Home({ reels, loading, error, token, onOpenFeed, onOrder }) {
   const [query, setQuery] = useState('')
   const [isSearchOpen, setIsSearchOpen] = useState(false)
   const [location, setLocation] = useState(
-    () => localStorage.getItem(LOCATION_KEY) || '',
+    getStoredLocation,
   )
   const [locationDraft, setLocationDraft] = useState(
-    () => localStorage.getItem(LOCATION_KEY) || '',
+    getStoredLocation,
   )
   const [locationError, setLocationError] = useState('')
   const [isLocationPromptOpen, setIsLocationPromptOpen] = useState(
-    () => !localStorage.getItem(LOCATION_KEY),
+    () => !getStoredLocation(),
   )
-  const [isLocationExpanded, setIsLocationExpanded] = useState(
-    () => Boolean(localStorage.getItem(LOCATION_KEY)),
+  const [isEditingLocation, setIsEditingLocation] = useState(
+    () => !getStoredLocation(),
   )
+  const [isLocationExpanded, setIsLocationExpanded] = useState(false)
+  const [locationToast, setLocationToast] = useState('')
   const [isDetectingLocation, setIsDetectingLocation] = useState(false)
   const [foodMode, setFoodMode] = useState('veg')
   const [selectedCategory, setSelectedCategory] = useState('')
   const [activePosterIndex, setActivePosterIndex] = useState(0)
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false)
+  const [placeholderIndex, setPlaceholderIndex] = useState(0)
+  const [orderHistory, setOrderHistory] = useState([])
   const searchWrapperRef = useRef(null)
   const touchStartXRef = useRef(null)
+  const locationToastTimerRef = useRef(null)
 
   const dishes = useMemo(() => {
     const uniqueDishes = new Map()
@@ -82,10 +98,46 @@ function Home({ reels, loading, error, onOpenFeed, onOrder }) {
   }, [posters.length])
 
   useEffect(() => {
-    if (!location || isLocationPromptOpen || !isLocationExpanded) return undefined
-    const timeoutId = window.setTimeout(() => setIsLocationExpanded(false), 3500)
+    if (!token) return undefined
+
+    const controller = new AbortController()
+    fetch(`${API_ORIGIN}/orders`, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error(`Could not load order history (${response.status}).`)
+        }
+        return response.json()
+      })
+      .then((data) => setOrderHistory(data.items || data.orders || []))
+      .catch((requestError) => {
+        if (requestError.name !== 'AbortError') {
+          console.error('Unable to load Biteflow order history for recommendations', requestError)
+        }
+      })
+    return () => controller.abort()
+  }, [token])
+
+  useEffect(() => {
+    const timerId = window.setInterval(
+      () => setPlaceholderIndex((index) => (index + 1) % SEARCH_PLACEHOLDERS.length),
+      3000,
+    )
+    return () => window.clearInterval(timerId)
+  }, [])
+
+  useEffect(
+    () => () => window.clearTimeout(locationToastTimerRef.current),
+    [],
+  )
+
+  useEffect(() => {
+    if (!isLocationExpanded) return undefined
+    const timeoutId = window.setTimeout(() => setIsLocationExpanded(false), 4000)
     return () => window.clearTimeout(timeoutId)
-  }, [location, isLocationPromptOpen, isLocationExpanded])
+  }, [isLocationExpanded])
 
   useEffect(() => {
     const closeSearchOnOutsideClick = (event) => {
@@ -96,7 +148,11 @@ function Home({ reels, loading, error, onOpenFeed, onOrder }) {
   }, [])
 
   const normalizedQuery = query.trim().toLowerCase()
-  const filteredDishes = dishes.filter(({ food }) => {
+  const filteredDishes = rankDishes(dishes, {
+    foodPreference: foodMode,
+    searchHistory: getSearchHistory(),
+    orderHistory,
+  }).filter(({ food }) => {
     const searchText = `${food.name} ${food.restaurants?.name ?? ''}`.toLowerCase()
     const matchesSearch = searchText.includes(normalizedQuery)
     const matchesCategory =
@@ -109,7 +165,11 @@ function Home({ reels, loading, error, onOpenFeed, onOrder }) {
     return matchesSearch && matchesCategory && matchesFoodMode
   })
 
-  const filteredReels = reels.filter((reel) => {
+  const filteredReels = rankBites(reels, {
+    foodPreference: foodMode,
+    searchHistory: getSearchHistory(),
+    orderHistory,
+  }).filter((reel) => {
     const food = reel.food_item
     const searchText = `${food?.name ?? ''} ${food?.restaurants?.name ?? ''} ${
       reel.description ?? ''
@@ -136,7 +196,7 @@ function Home({ reels, loading, error, onOpenFeed, onOrder }) {
     craving.toLowerCase().includes(normalizedQuery),
   ).slice(0, 4)
 
-  const chooseLocation = (nextLocation) => {
+  const chooseLocation = (nextLocation, wasDetected = false) => {
     const cleanLocation = nextLocation.trim()
     if (!cleanLocation) {
       setLocationError('Enter your campus or hostel address to continue.')
@@ -147,7 +207,13 @@ function Home({ reels, loading, error, onOpenFeed, onOrder }) {
     setLocationDraft(cleanLocation)
     setLocationError('')
     setIsLocationPromptOpen(false)
-    setIsLocationExpanded(true)
+    setIsEditingLocation(false)
+    if (wasDetected) {
+      setIsLocationExpanded(true)
+      setLocationToast('Location detected successfully')
+      window.clearTimeout(locationToastTimerRef.current)
+      locationToastTimerRef.current = window.setTimeout(() => setLocationToast(''), 4000)
+    }
   }
 
   const detectLocation = () => {
@@ -158,11 +224,58 @@ function Home({ reels, loading, error, onOpenFeed, onOrder }) {
     setIsDetectingLocation(true)
     setLocationError('')
     navigator.geolocation.getCurrentPosition(
-      ({ coords }) => {
-        setIsDetectingLocation(false)
-        const coordinates = `${coords.latitude.toFixed(5)}, ${coords.longitude.toFixed(5)}`
-        setLocationDraft(coordinates)
-        chooseLocation(coordinates)
+      async ({ coords }) => {
+        try {
+          const params = new URLSearchParams({
+            format: 'jsonv2',
+            lat: String(coords.latitude),
+            lon: String(coords.longitude),
+          })
+          const response = await fetch(
+            `https://nominatim.openstreetmap.org/reverse?${params}`,
+            { headers: { 'Accept-Language': 'en' } },
+          )
+          if (!response.ok) {
+            throw new Error(`Address lookup failed (${response.status}).`)
+          }
+          const result = await response.json()
+          const address = result.address || {}
+          const locality =
+            address.neighbourhood ||
+            address.suburb ||
+            address.village ||
+            address.town ||
+            address.city ||
+            result.name
+          const district =
+            address.city_district ||
+            address.state_district ||
+            address.county ||
+            address.city ||
+            address.town
+          const readableAddress = [locality, district]
+            .filter((part, index, parts) => part && parts.indexOf(part) === index)
+            .join(', ')
+          const fallbackAddress = result.display_name
+            ?.split(',')
+            .slice(0, 3)
+            .map((part) => part.trim())
+            .filter(Boolean)
+            .join(', ')
+          const resolvedAddress = readableAddress || fallbackAddress
+          if (!resolvedAddress) {
+            throw new Error('No readable address was found for this location.')
+          }
+          setLocationDraft(resolvedAddress)
+          chooseLocation(resolvedAddress, true)
+        } catch (lookupError) {
+          setLocationError(
+            lookupError.message ||
+              'Could not convert your location to an address. Enter it manually.',
+          )
+        } finally {
+          setIsDetectingLocation(false)
+        }
       },
       (geoError) => {
         setIsDetectingLocation(false)
@@ -178,12 +291,25 @@ function Home({ reels, loading, error, onOpenFeed, onOrder }) {
 
   const selectDishSuggestion = (entry) => {
     setQuery(entry.food.name)
+    const previousSearches = getSearchHistory()
+    localStorage.setItem(
+      SEARCH_HISTORY_KEY,
+      JSON.stringify([
+        entry.food.name,
+        ...previousSearches.filter((search) => search !== entry.food.name),
+      ].slice(0, 10)),
+    )
     setIsSearchOpen(false)
     onOpenFeed(entry.reel)
   }
 
   const selectCravingSuggestion = (craving) => {
     setQuery(craving)
+    const previousSearches = getSearchHistory()
+    localStorage.setItem(
+      SEARCH_HISTORY_KEY,
+      JSON.stringify([craving, ...previousSearches.filter((entry) => entry !== craving)].slice(0, 10)),
+    )
     setIsSearchOpen(false)
   }
 
@@ -195,22 +321,30 @@ function Home({ reels, loading, error, onOpenFeed, onOrder }) {
 
   return (
     <main className="mx-auto min-h-[100dvh] w-full max-w-md bg-white pb-20 text-neutral-900">
-      <header className="relative z-30 border-b border-white/15 bg-[#FF6600]/90 px-4 pb-3 pt-3 text-white shadow-sm backdrop-blur-md">
+      <header className="relative z-30 border-b border-white/15 bg-[#FF6600]/90 px-3 py-2 text-white shadow-sm backdrop-blur-md">
         <div className="mb-2 flex items-center justify-between">
-          <button
-            type="button"
-            onClick={() => setIsSettingsOpen(true)}
-            className="grid size-9 place-items-center rounded-xl border border-white/20 bg-black/10"
-            aria-label="Open Biteflow settings"
-          >
-            <Menu size={22} />
-          </button>
           <span className="text-lg font-extrabold tracking-tight">Biteflow</span>
-          <span className="grid size-9 place-items-center rounded-xl border border-white/20 bg-black/10" aria-hidden="true">
-            <UserRound size={19} />
-          </span>
+          <div className="flex min-w-0 items-center gap-2">
+            {isLocationExpanded && location && (
+              <span className="max-w-[200px] truncate rounded-full border border-white/20 bg-black/30 px-2.5 py-1.5 text-xs font-semibold backdrop-blur-md">
+                {location}
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                setLocationDraft(location)
+                setLocationError('')
+                setIsEditingLocation(!location)
+                setIsLocationPromptOpen(true)
+              }}
+              className="grid size-9 shrink-0 place-items-center rounded-full border border-white/20 bg-white/20 text-white"
+              aria-label={location ? `View delivery location: ${location}` : 'Set delivery location'}
+            >
+              <MapPin size={18} />
+            </button>
+          </div>
         </div>
-
         <div className="flex items-center gap-2">
           <div className="relative min-w-0 flex-1" ref={searchWrapperRef}>
             <label className="flex items-center gap-2 rounded-full border border-orange-500/20 bg-white/85 px-4 py-2.5 text-neutral-800 shadow-sm backdrop-blur-md">
@@ -222,7 +356,7 @@ function Home({ reels, loading, error, onOpenFeed, onOrder }) {
                 }}
                 onFocus={() => setIsSearchOpen(true)}
                 className="min-w-0 flex-1 bg-transparent text-sm font-semibold outline-none placeholder:text-neutral-500"
-                placeholder="Chole bhature ...?"
+                placeholder={SEARCH_PLACEHOLDERS[placeholderIndex]}
                 aria-label="Search dishes"
                 aria-expanded={isSearchOpen}
               />
@@ -297,76 +431,18 @@ function Home({ reels, loading, error, onOpenFeed, onOrder }) {
             )}
           </div>
 
-          {!isLocationExpanded && location && (
-            <button
-              type="button"
-              onClick={() => {
-                setLocationDraft(location)
-                setIsLocationPromptOpen(true)
-                setIsLocationExpanded(true)
-              }}
-              className="flex max-w-[42%] shrink-0 items-center gap-1.5 rounded-full border border-white/20 bg-black/30 px-2.5 py-2 text-xs font-semibold text-white backdrop-blur-md"
-              aria-label={`Edit location: ${location}`}
-            >
-              <MapPin size={14} className="shrink-0" />
-              <span className="truncate">{location}</span>
-            </button>
-          )}
-        </div>
-
-        <div
-          className={`grid transition-all duration-500 ease-in-out ${
-            isLocationExpanded && location
-              ? 'mt-2 grid-rows-[1fr] opacity-100'
-              : 'mt-0 grid-rows-[0fr] opacity-0'
-          }`}
-        >
-          <div className="overflow-hidden">
-            {location && (
-              <div className="flex items-center gap-2 rounded-full border border-white/20 bg-black/30 px-3 py-2 text-xs font-semibold text-white backdrop-blur-md">
-                <MapPin size={16} className="shrink-0 text-orange-200" />
-                <button
-                  type="button"
-                  onClick={() => {
-                    setLocationDraft(location)
-                    setIsLocationPromptOpen(true)
-                  }}
-                  className="min-w-0 flex-1 truncate text-left"
-                >
-                  {location}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setIsLocationExpanded(false)}
-                  aria-label="Collapse location"
-                  className="rounded-full p-1 text-white/70 hover:text-white"
-                >
-                  <X size={14} />
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-
-        <div className="mt-2 flex items-center justify-between">
-          <span className="text-[11px] font-medium text-white/85">Campus food, delivered</span>
           <button
             type="button"
             onClick={() => setFoodMode((mode) => (mode === 'veg' ? 'non-veg' : 'veg'))}
-            className={`flex h-8 min-w-[98px] items-center justify-between rounded-full px-1.5 text-[11px] font-bold text-white transition-colors duration-300 ${
+            className={`flex h-7 w-[72px] shrink-0 items-center justify-center rounded-full px-1 text-[11px] font-semibold text-white transition-colors duration-300 ${
               foodMode === 'veg' ? 'bg-emerald-500' : 'bg-red-600'
             }`}
             aria-label={`Food filter: ${foodMode === 'veg' ? 'Veg' : 'Non-Veg'}, switch`}
             aria-pressed={foodMode === 'veg'}
           >
-            <span className={`px-1 transition-all duration-300 ${foodMode === 'veg' ? 'order-1' : 'order-2'}`}>
+            <span className="transition-all duration-300">
               {foodMode === 'veg' ? 'Veg' : 'Non-Veg'}
             </span>
-            <span
-              className={`size-5 rounded-full bg-white shadow transition-all duration-300 ${
-                foodMode === 'veg' ? 'order-2' : 'order-1'
-              }`}
-            />
           </button>
         </div>
       </header>
@@ -386,11 +462,11 @@ function Home({ reels, loading, error, onOpenFeed, onOrder }) {
           }}
         >
           {loading ? (
-            <div className="h-48 animate-pulse bg-orange-50" />
+            <div className="h-48 animate-pulse bg-orange-50 sm:h-56" />
           ) : error ? (
-            <p className="grid h-48 place-items-center px-5 text-center text-sm text-neutral-600">{error}</p>
+            <p className="grid h-48 place-items-center px-5 text-center text-sm text-neutral-600 sm:h-56">{error}</p>
           ) : posters.length ? (
-            <div className="relative h-48">
+            <div className="relative h-48 sm:h-56">
               <div
                 className="flex h-full transition-transform duration-500 ease-out"
                 style={{ transform: `translateX(-${visiblePosterIndex * 100}%)` }}
@@ -422,7 +498,7 @@ function Home({ reels, loading, error, onOpenFeed, onOrder }) {
               </div>
             </div>
           ) : (
-            <div className="grid h-48 place-items-center text-sm text-neutral-500">
+            <div className="grid h-48 place-items-center text-sm text-neutral-500 sm:h-56">
               No featured Bites available.
             </div>
           )}
@@ -565,7 +641,7 @@ function Home({ reels, loading, error, onOpenFeed, onOrder }) {
 
       {isLocationPromptOpen && (
         <div
-          className="fixed inset-0 z-[70] flex items-end justify-center bg-black/60 p-3 backdrop-blur-sm sm:items-center"
+          className="fixed inset-0 z-[70] flex items-end justify-center bg-black/40 p-3 backdrop-blur-sm sm:items-center"
           onClick={() => {
             if (location) setIsLocationPromptOpen(false)
           }}
@@ -575,16 +651,16 @@ function Home({ reels, loading, error, onOpenFeed, onOrder }) {
             aria-modal="true"
             aria-labelledby="location-title"
             onClick={(event) => event.stopPropagation()}
-            className="w-full max-w-md rounded-3xl border border-white/15 bg-black/40 p-5 text-white shadow-2xl backdrop-blur-md"
+            className="w-full max-w-md rounded-3xl border border-orange-500/15 bg-white p-5 text-neutral-900 shadow-2xl"
           >
             <div className="mb-4 flex items-start justify-between">
               <div>
-                <p className="text-xs font-bold uppercase tracking-wider text-orange-300">Biteflow delivery</p>
+                <p className="text-xs font-bold uppercase tracking-wider text-orange-600">Biteflow delivery</p>
                 <h2 id="location-title" className="mt-1 text-xl font-extrabold">
-                  Set your campus location
+                  Delivery location
                 </h2>
-                <p className="mt-1 text-sm text-white/70">
-                  Add a hostel, campus, or nearby address for relevant recommendations.
+                <p className="mt-1 text-sm text-neutral-500">
+                  Your campus or hostel address helps with local recommendations.
                 </p>
               </div>
               {location && (
@@ -592,100 +668,80 @@ function Home({ reels, loading, error, onOpenFeed, onOrder }) {
                   type="button"
                   onClick={() => setIsLocationPromptOpen(false)}
                   aria-label="Close location prompt"
-                  className="rounded-full bg-white/10 p-2"
+                  className="rounded-full bg-orange-50 p-2 text-neutral-700"
                 >
                   <X size={18} />
                 </button>
               )}
             </div>
+            {location && !isEditingLocation && (
+              <div className="flex items-center gap-3 rounded-xl border border-orange-500/15 bg-orange-50/70 px-3.5 py-3">
+                <MapPin size={18} className="shrink-0 text-orange-600" />
+                <p className="min-w-0 flex-1 text-sm font-semibold text-neutral-800">
+                  {location}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLocationDraft(location)
+                    setIsEditingLocation(true)
+                  }}
+                  className="grid size-8 shrink-0 place-items-center rounded-full bg-white text-orange-700"
+                  aria-label="Edit address"
+                >
+                  <Pencil size={15} />
+                </button>
+              </div>
+            )}
             <button
               type="button"
               onClick={detectLocation}
               disabled={isDetectingLocation}
-              className="flex w-full items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/10 py-3 text-sm font-bold transition hover:bg-white/15 disabled:opacity-60"
+              className="flex w-full items-center justify-center gap-2 rounded-xl border border-orange-500/20 bg-[#FFF6F0] py-3 text-sm font-bold transition hover:bg-orange-50 disabled:opacity-60"
             >
-              <LocateFixed size={18} className="text-orange-300" />
+              <LocateFixed size={18} className="text-orange-600" />
               {isDetectingLocation ? 'Detecting location…' : 'Detect my location'}
             </button>
-            <div className="my-4 flex items-center gap-3 text-[11px] font-semibold uppercase tracking-wider text-white/45">
-              <span className="h-px flex-1 bg-white/15" />or enter manually<span className="h-px flex-1 bg-white/15" />
-            </div>
-            <label className="block text-xs font-semibold text-white/75" htmlFor="campus-location">
-              Campus / hostel address
-            </label>
-            <input
-              id="campus-location"
-              value={locationDraft}
-              onChange={(event) => setLocationDraft(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') chooseLocation(locationDraft)
-              }}
-              placeholder="Hostel, campus, or nearby landmark"
-              className="mt-2 w-full rounded-xl border border-white/15 bg-white/10 px-3.5 py-3 text-sm text-white outline-none placeholder:text-white/40 focus:border-orange-400"
-            />
-            {locationError && <p role="alert" className="mt-2 text-xs text-red-300">{locationError}</p>}
-            <button
-              type="button"
-              onClick={() => chooseLocation(locationDraft)}
-              className="mt-4 w-full rounded-xl bg-[#FF6600] py-3 text-sm font-extrabold text-white"
-            >
-              Save location
-            </button>
+            {(isEditingLocation || !location) && (
+              <>
+                <div className="my-4 flex items-center gap-3 text-[11px] font-semibold uppercase tracking-wider text-neutral-400">
+                  <span className="h-px flex-1 bg-orange-500/15" />or enter manually<span className="h-px flex-1 bg-orange-500/15" />
+                </div>
+                <label className="block text-xs font-semibold text-neutral-700" htmlFor="campus-location">
+                  Campus / hostel address
+                </label>
+                <input
+                  id="campus-location"
+                  value={locationDraft}
+                  onChange={(event) => setLocationDraft(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') chooseLocation(locationDraft)
+                  }}
+                  placeholder="Hostel, campus, or nearby landmark"
+                  className="mt-2 w-full rounded-xl border border-orange-500/20 bg-white px-3.5 py-3 text-sm text-neutral-900 outline-none placeholder:text-neutral-400 focus:border-orange-400"
+                />
+              </>
+            )}
+            {locationError && <p role="alert" className="mt-2 text-xs text-red-600">{locationError}</p>}
+            {(isEditingLocation || !location) && (
+              <button
+                type="button"
+                onClick={() => chooseLocation(locationDraft)}
+                className="mt-4 w-full rounded-xl bg-[#FF6600] py-3 text-sm font-extrabold text-white"
+              >
+                Save location
+              </button>
+            )}
           </section>
         </div>
       )}
 
-      {isSettingsOpen && (
+      {locationToast && (
         <div
-          className="fixed inset-0 z-[70] flex justify-end bg-black/60 backdrop-blur-sm"
-          onClick={() => setIsSettingsOpen(false)}
+          role="status"
+          className="fixed left-1/2 top-20 z-[60] -translate-x-1/2 rounded-full border border-white/15 bg-black/75 px-4 py-2 text-xs font-semibold text-white shadow-lg backdrop-blur-md"
         >
-          <section
-            role="dialog"
-            aria-modal="true"
-            aria-label="Biteflow settings"
-            onClick={(event) => event.stopPropagation()}
-            className="h-full w-full max-w-md overflow-y-auto border-l border-white/15 bg-black/40 px-5 pb-8 pt-[max(1.5rem,env(safe-area-inset-top))] text-white shadow-2xl backdrop-blur-md"
-          >
-            <div className="mb-7 flex items-center justify-between">
-              <div>
-                <p className="text-xs font-bold uppercase tracking-wider text-orange-300">Biteflow</p>
-                <h2 className="mt-1 text-2xl font-extrabold">Settings</h2>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsSettingsOpen(false)}
-                className="rounded-full border border-white/15 bg-white/10 p-2"
-                aria-label="Close settings"
-              >
-                <X size={20} />
-              </button>
-            </div>
-            <div className="space-y-2">
-              {SETTINGS_ITEMS.map((entry) => (
-                <button
-                  key={entry}
-                  type="button"
-                  className="flex w-full items-center justify-between rounded-2xl border border-white/15 bg-white/5 px-4 py-4 text-left text-sm font-semibold transition hover:bg-white/10"
-                >
-                  {entry}
-                  <ChevronRight size={18} className="text-white/50" />
-                </button>
-              ))}
-            </div>
-            <button
-              type="button"
-              onClick={() => {
-                localStorage.removeItem('biteflow_token')
-                window.location.reload()
-              }}
-              className="mt-8 flex w-full items-center justify-center gap-2 rounded-2xl border border-red-300/25 bg-red-500/10 px-4 py-4 text-sm font-bold text-red-200"
-            >
-              <LogOut size={18} />
-              Log out
-            </button>
-            <p className="mt-8 text-center text-xs text-white/40">Biteflow</p>
-          </section>
+          {locationToast}
         </div>
       )}
     </main>
