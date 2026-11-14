@@ -16,7 +16,6 @@ video_routes = APIRouter()
 
 
 @video_routes.post("/video")
-@video_routes.post("/videos")
 async def upload_bite(
     video_data: video_in,
     db: AsyncSession = Depends(get_db),

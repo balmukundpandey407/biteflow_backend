@@ -21,6 +21,8 @@ async def get_restaurants(
                 "id": restaurant.id,
                 "name": restaurant.name,
                 "phone": restaurant.phone,
+                "latitude":restaurant.latitude,
+                "longitude":restaurant.longitude,
                 "website": restaurant.website,
                 "swiggy_url": restaurant.swiggy_url,
                 "zomato_url": restaurant.zomato_url,
@@ -55,6 +57,7 @@ async def get_restaurant_menu(
                 "price": food.price,
                 "image_url": food.image_url,
                 "description": food.description,
+                "is_veg": food.is_veg,
             }
             for food in foods
         ]

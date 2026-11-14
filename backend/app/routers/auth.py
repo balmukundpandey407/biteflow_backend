@@ -1,5 +1,5 @@
 from fastapi import APIRouter,Depends, HTTPException
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from uuid import uuid4
@@ -8,14 +8,14 @@ from datetime import datetime
 from app.models.user import User
 from app.database.db import get_db
 from app.schemas.user import user_register, user_login, user_out
-from app.authorization.security import hash_pw, verify_pw, sign_jwt, decode_jwt
+from app.authorization.security import hash_pw, verify_pw, sign_jwt, decode_jwt, security
 
 auth_routes = APIRouter()   
 
 
 async def get_current_user(
     db: AsyncSession = Depends(get_db),
-    credentials: HTTPAuthorizationCredentials = Depends(HTTPBearer)
+    credentials: HTTPAuthorizationCredentials = Depends(security)
 ):
 
     token = credentials.credentials
