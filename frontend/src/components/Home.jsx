@@ -11,7 +11,6 @@ import {
 } from 'lucide-react'
 import { rankBites, rankDishes } from '../utils/recommendations.js'
 import { API_BASE_URL } from '../api.js'
-import biteflowLogo from '../assets/biteflow-logo.png'
 
 const CATEGORIES = ['Maggi', 'Rolls', 'Coffee', 'Thali', 'Momos']
 const POPULAR_CRAVINGS = ['Maggi', 'Chole bhature', 'Momos', 'Cold coffee']
@@ -41,13 +40,16 @@ function isVegetarian(value) {
   )
 }
 
-function isNonVegetarian(value) {
-  return ['false', '0', 'no', 'non-veg', 'nonveg'].includes(
-    String(value).toLowerCase(),
-  )
-}
-
-function Home({ reels, loading, error, token, onOpenFeed, onOrder }) {
+function Home({
+  reels,
+  loading,
+  error,
+  token,
+  foodMode,
+  onFoodModeChange,
+  onOpenFeed,
+  onOrder,
+}) {
   const [query, setQuery] = useState('')
   const [isSearchOpen, setIsSearchOpen] = useState(false)
   const [location, setLocation] = useState(
@@ -64,31 +66,110 @@ function Home({ reels, loading, error, token, onOpenFeed, onOrder }) {
     () => !getStoredLocation(),
   )
   const [isLocationExpanded, setIsLocationExpanded] = useState(false)
+  const [locationExpandSequence, setLocationExpandSequence] = useState(0)
   const [locationToast, setLocationToast] = useState('')
   const [isDetectingLocation, setIsDetectingLocation] = useState(false)
-  const [foodMode, setFoodMode] = useState('veg')
   const [selectedCategory, setSelectedCategory] = useState('')
   const [activePosterIndex, setActivePosterIndex] = useState(0)
+  const [activeTrendingIndex, setActiveTrendingIndex] = useState(0)
   const [placeholderIndex, setPlaceholderIndex] = useState(0)
   const [orderHistory, setOrderHistory] = useState([])
+  const [dishes, setDishes] = useState([])
+  const [dishesLoading, setDishesLoading] = useState(true)
+  const [dishesError, setDishesError] = useState('')
   const searchWrapperRef = useRef(null)
   const touchStartXRef = useRef(null)
+  const trendingVideoRefs = useRef([])
   const locationToastTimerRef = useRef(null)
 
-  const dishes = useMemo(() => {
-    const uniqueDishes = new Map()
-    reels.forEach((reel) => {
-      const food = reel.food_item
-      if (!food?.id || !food.name || uniqueDishes.has(food.id)) return
-      uniqueDishes.set(food.id, { food, reel })
-    })
-    return [...uniqueDishes.values()]
-  }, [reels])
+  useEffect(() => {
+    const controller = new AbortController()
+    async function fetchDishes() {
+      try {
+        const response = await fetch(`${API_BASE_URL}/food-items`, {
+          signal: controller.signal,
+        })
+        if (!response.ok) throw new Error(`Could not load dishes (${response.status}).`)
+        const data = await response.json()
+        const items = Array.isArray(data)
+          ? data
+          : data.items || data.data || data.food_items || []
+        if (!Array.isArray(items)) throw new Error('The dishes response was invalid.')
+        setDishes(items)
+      } catch (requestError) {
+        if (requestError.name !== 'AbortError') {
+          setDishesError('Dishes are unavailable right now. Please try again later.')
+          console.error('Unable to load Biteflow dishes', requestError)
+        }
+      } finally {
+        if (!controller.signal.aborted) setDishesLoading(false)
+      }
+    }
 
-  const posters = reels.slice(0, 5)
+    void fetchDishes()
+    return () => controller.abort()
+  }, [])
+
+  const reelByDishId = useMemo(
+    () => new Map(reels.filter((reel) => reel.food_item?.id)
+      .map((reel) => [String(reel.food_item.id), reel])),
+    [reels],
+  )
+
+  const filteredDishes = rankDishes(dishes, {
+    foodPreference: foodMode,
+    searchHistory: getSearchHistory(),
+    orderHistory,
+  }).filter((food) => {
+    const searchText = `${food.name ?? ''} ${food.restaurants?.name ?? ''}`.toLowerCase()
+    const matchesSearch = searchText.includes(query.trim().toLowerCase())
+    const matchesCategory =
+      !selectedCategory ||
+      searchText.includes(selectedCategory.toLowerCase().replace(/s$/, ''))
+    return matchesSearch && matchesCategory &&
+      (foodMode !== 'veg' || isVegetarian(food.is_veg))
+  })
+
+  const filteredReels = rankBites(reels, {
+    foodPreference: foodMode,
+    searchHistory: getSearchHistory(),
+    orderHistory,
+  }).filter((reel) => {
+    const food = reel.food_item
+    const searchText = `${food?.name ?? ''} ${food?.restaurants?.name ?? ''} ${
+      reel.description ?? ''
+    }`.toLowerCase()
+    const matchesSearch = searchText.includes(query.trim().toLowerCase())
+    const matchesCategory =
+      !selectedCategory ||
+      searchText.includes(selectedCategory.toLowerCase().replace(/s$/, ''))
+    return matchesSearch && matchesCategory &&
+      (foodMode !== 'veg' || isVegetarian(food?.is_veg))
+  })
+
+  const featuredPosts = [
+    ...filteredReels.slice(0, 3).map((reel) => ({ type: 'bite', reel })),
+    ...filteredDishes.slice(0, 2).map((food) => ({ type: 'dish', food })),
+  ].slice(0, 5)
+  const posters = featuredPosts
   const visiblePosterIndex = posters.length
     ? activePosterIndex % posters.length
     : 0
+  const trendingReels = filteredReels.slice(0, 10)
+  const trendingReelKey = trendingReels.map((reel) => reel.id).join(',')
+  const currentTrendingIndex = trendingReels.length
+    ? activeTrendingIndex % trendingReels.length
+    : 0
+
+  const orderItemForFood = (food) => ({
+    id: null,
+    food_item_id: food.id,
+    food_item: food,
+    title: food.name,
+    description: food.description,
+    restaurant_name: food.restaurants?.name ?? '',
+    thumbnail_url: food.image_url,
+  })
 
   useEffect(() => {
     if (posters.length < 2) return undefined
@@ -97,6 +178,35 @@ function Home({ reels, loading, error, token, onOpenFeed, onOrder }) {
     }, 3500)
     return () => window.clearInterval(intervalId)
   }, [posters.length])
+
+  useEffect(() => {
+    const videos = trendingVideoRefs.current
+    videos.forEach((video, index) => {
+      if (!video) return
+      if (index === currentTrendingIndex) {
+        video.currentTime = 0
+        video.play().catch((playError) => {
+          console.error('Unable to play Bite preview', playError)
+        })
+      } else {
+        video.pause()
+        video.currentTime = 0
+      }
+    })
+
+    if (!trendingReels.length) return undefined
+    const timeoutId = window.setTimeout(
+      () => setActiveTrendingIndex((index) => (index + 1) % trendingReels.length),
+      3500,
+    )
+    return () => {
+      window.clearTimeout(timeoutId)
+      videos.forEach((video) => {
+        video?.pause()
+        if (video) video.currentTime = 0
+      })
+    }
+  }, [activeTrendingIndex, currentTrendingIndex, trendingReelKey, trendingReels.length])
 
   useEffect(() => {
     if (!token) return undefined
@@ -138,7 +248,7 @@ function Home({ reels, loading, error, token, onOpenFeed, onOrder }) {
     if (!isLocationExpanded) return undefined
     const timeoutId = window.setTimeout(() => setIsLocationExpanded(false), 4000)
     return () => window.clearTimeout(timeoutId)
-  }, [isLocationExpanded])
+  }, [isLocationExpanded, locationExpandSequence])
 
   useEffect(() => {
     const closeSearchOnOutsideClick = (event) => {
@@ -148,53 +258,22 @@ function Home({ reels, loading, error, token, onOpenFeed, onOrder }) {
     return () => document.removeEventListener('pointerdown', closeSearchOnOutsideClick)
   }, [])
 
-  const normalizedQuery = query.trim().toLowerCase()
-  const filteredDishes = rankDishes(dishes, {
-    foodPreference: foodMode,
-    searchHistory: getSearchHistory(),
-    orderHistory,
-  }).filter(({ food }) => {
-    const searchText = `${food.name} ${food.restaurants?.name ?? ''}`.toLowerCase()
-    const matchesSearch = searchText.includes(normalizedQuery)
-    const matchesCategory =
-      !selectedCategory ||
-      searchText.includes(selectedCategory.toLowerCase().replace(/s$/, ''))
-    const matchesFoodMode =
-      foodMode === 'veg'
-        ? isVegetarian(food.is_veg)
-        : isNonVegetarian(food.is_veg)
-    return matchesSearch && matchesCategory && matchesFoodMode
-  })
-
-  const filteredReels = rankBites(reels, {
-    foodPreference: foodMode,
-    searchHistory: getSearchHistory(),
-    orderHistory,
-  }).filter((reel) => {
-    const food = reel.food_item
-    const searchText = `${food?.name ?? ''} ${food?.restaurants?.name ?? ''} ${
-      reel.description ?? ''
-    }`.toLowerCase()
-    const matchesSearch = searchText.includes(normalizedQuery)
-    const matchesCategory =
-      !selectedCategory ||
-      searchText.includes(selectedCategory.toLowerCase().replace(/s$/, ''))
-    const matchesFoodMode =
-      foodMode === 'veg'
-        ? isVegetarian(food?.is_veg)
-        : isNonVegetarian(food?.is_veg)
-    return matchesSearch && matchesCategory && matchesFoodMode
-  })
-
   const matchingSuggestions = dishes
-    .filter(({ food }) =>
+    .filter((food) =>
+      (foodMode !== 'veg' || isVegetarian(food.is_veg)) &&
       `${food.name} ${food.restaurants?.name ?? ''}`
         .toLowerCase()
-        .includes(normalizedQuery),
+        .includes(query.trim().toLowerCase()),
     )
     .slice(0, 4)
   const popularSuggestions = POPULAR_CRAVINGS.filter((craving) =>
-    craving.toLowerCase().includes(normalizedQuery),
+    craving.toLowerCase().includes(query.trim().toLowerCase()) &&
+    (foodMode !== 'veg' || dishes.some((food) =>
+      isVegetarian(food.is_veg) &&
+      `${food.name} ${food.restaurants?.name ?? ''}`
+        .toLowerCase()
+        .includes(craving.toLowerCase()),
+    )),
   ).slice(0, 4)
 
   const chooseLocation = (nextLocation, wasDetected = false) => {
@@ -210,8 +289,9 @@ function Home({ reels, loading, error, token, onOpenFeed, onOrder }) {
     setLocationError('')
     setIsLocationPromptOpen(false)
     setIsEditingLocation(false)
+    setIsLocationExpanded(true)
+    setLocationExpandSequence((sequence) => sequence + 1)
     if (wasDetected) {
-      setIsLocationExpanded(true)
       setLocationToast('Location detected successfully')
       window.clearTimeout(locationToastTimerRef.current)
       locationToastTimerRef.current = window.setTimeout(() => setLocationToast(''), 4000)
@@ -299,17 +379,19 @@ function Home({ reels, loading, error, token, onOpenFeed, onOrder }) {
   }
 
   const selectDishSuggestion = (entry) => {
-    setQuery(entry.food.name)
+    setQuery(entry.name)
     const previousSearches = getSearchHistory()
     localStorage.setItem(
       SEARCH_HISTORY_KEY,
       JSON.stringify([
-        entry.food.name,
-        ...previousSearches.filter((search) => search !== entry.food.name),
+        entry.name,
+        ...previousSearches.filter((search) => search !== entry.name),
       ].slice(0, 10)),
     )
     setIsSearchOpen(false)
-    onOpenFeed(entry.reel)
+    const bite = reelByDishId.get(String(entry.id))
+    if (bite) onOpenFeed(bite)
+    else onOrder(orderItemForFood(entry))
   }
 
   const selectCravingSuggestion = (craving) => {
@@ -357,18 +439,13 @@ function Home({ reels, loading, error, token, onOpenFeed, onOrder }) {
               )}
             </button>
           </div>
-          <div className="flex items-center justify-center gap-1">
-            <img
-              src={biteflowLogo}
-              alt=""
-              className="size-6 rounded-full object-cover"
-            />
-            <span className="text-sm font-extrabold tracking-tight">Biteflow</span>
+          <div className="flex items-center justify-center">
+            <span className="text-2xl font-extrabold tracking-tight text-white">Biteflow</span>
           </div>
           <div className="flex min-w-0 justify-end">
             <button
               type="button"
-              onClick={() => setFoodMode((mode) => (mode === 'veg' ? 'non-veg' : 'veg'))}
+              onClick={() => onFoodModeChange(foodMode === 'veg' ? 'non-veg' : 'veg')}
               className={`relative flex h-[22px] w-[58px] shrink-0 items-center rounded-full transition-colors duration-300 ${
                 foodMode === 'veg' ? 'bg-[#16A34A]' : 'bg-[#DC2626]'
               }`}
@@ -424,21 +501,21 @@ function Home({ reels, loading, error, token, onOpenFeed, onOrder }) {
                     </p>
                     {matchingSuggestions.map((entry) => (
                       <button
-                        key={entry.food.id}
+                        key={entry.id}
                         type="button"
                         onMouseDown={(event) => event.preventDefault()}
                         onClick={() => selectDishSuggestion(entry)}
                         className="flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left transition hover:bg-orange-50"
                       >
                         <img
-                          src={entry.food.image_url || undefined}
+                          src={entry.image_url || undefined}
                           alt=""
                           className="size-10 rounded-lg bg-orange-50 object-cover"
                         />
                         <span className="min-w-0 flex-1">
-                          <span className="block truncate text-sm font-bold">{entry.food.name}</span>
+                          <span className="block truncate text-sm font-bold">{entry.name}</span>
                           <span className="block truncate text-xs text-neutral-500">
-                            {entry.food.restaurants?.name ?? ''}
+                            {entry.restaurants?.name ?? ''}
                           </span>
                         </span>
                         <ChevronRight size={17} className="text-neutral-400" />
@@ -499,37 +576,44 @@ function Home({ reels, loading, error, token, onOpenFeed, onOrder }) {
                 className="flex h-full transition-transform duration-500 ease-out"
                 style={{ transform: `translateX(-${visiblePosterIndex * 100}%)` }}
               >
-                {posters.map((reel, index) => (
+                {posters.map((post) => {
+                  const isBite = post.type === 'bite'
+                  const image = isBite
+                    ? post.reel.thumbnail_url || post.reel.food_item?.image_url
+                    : post.food.image_url
+                  const title = isBite
+                    ? post.reel.food_item?.name || post.reel.title
+                    : post.food.name
+                  const restaurantName = isBite
+                    ? post.reel.food_item?.restaurants?.name
+                    : post.food.restaurants?.name
+                  return (
                   <button
-                    key={reel.id ?? index}
+                    key={`${post.type}-${isBite ? post.reel.id : post.food.id}`}
                     type="button"
-                    onClick={() => onOpenFeed(reel)}
-                    className="relative h-full w-full min-w-full snap-center overflow-hidden bg-[#1E1E24] text-left text-white"
+                    onClick={() => isBite ? onOpenFeed(post.reel) : onOrder(orderItemForFood(post.food))}
+                    className="relative h-full w-full min-w-full snap-center overflow-hidden bg-white text-left text-white"
                   >
-                    <video
-                      src={reel.video_url}
-                      poster={reel.thumbnail_url || undefined}
-                      muted
-                      loop
-                      autoPlay
-                      playsInline
-                      preload="metadata"
-                      className="absolute inset-0 h-full w-full object-cover"
-                    />
+                    {image && (
+                      <img src={image} alt="" className="absolute inset-0 h-full w-full object-cover" />
+                    )}
                     <span className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/10 to-transparent" />
                     <span className="absolute inset-x-4 bottom-4">
-                      <span className="block text-xs font-bold text-orange-200">Featured Bite</span>
-                      <span className="mt-1 block truncate text-xl font-extrabold">
-                        {reel.food_item?.name || reel.title}
+                      <span className="block text-xs font-bold text-orange-200">
+                        {isBite ? 'Featured Bite' : 'Featured Dish'}
                       </span>
-                      {reel.food_item?.restaurants?.name && (
+                      <span className="mt-1 block truncate text-xl font-extrabold">
+                        {title}
+                      </span>
+                      {restaurantName && (
                         <span className="mt-1 block text-sm text-white/85">
-                          {reel.food_item.restaurants.name}
+                          {restaurantName}
                         </span>
                       )}
                     </span>
                   </button>
-                ))}
+                  )
+                })}
               </div>
             </div>
           ) : (
@@ -540,9 +624,9 @@ function Home({ reels, loading, error, token, onOpenFeed, onOrder }) {
         </div>
         {posters.length > 0 && (
           <div className="mt-3 flex justify-center gap-1.5">
-            {posters.map((reel, index) => (
+            {posters.map((post, index) => (
               <button
-                key={reel.id ?? index}
+                key={`${post.type}-${post.type === 'bite' ? post.reel.id : post.food.id}`}
                 type="button"
                 onClick={() => setActivePosterIndex(index)}
                 className={`h-2 rounded-full transition-all duration-300 ${
@@ -597,7 +681,7 @@ function Home({ reels, loading, error, token, onOpenFeed, onOrder }) {
           </button>
         </div>
         <div className="flex gap-3 overflow-x-auto px-4 pb-2">
-          {filteredReels.slice(0, 10).map((reel, index) => (
+          {trendingReels.map((reel, index) => (
             <button
               key={reel.id ?? index}
               type="button"
@@ -605,13 +689,20 @@ function Home({ reels, loading, error, token, onOpenFeed, onOrder }) {
               className="relative aspect-[9/16] w-36 shrink-0 overflow-hidden rounded-2xl border border-white/15 bg-[#1E1E24] text-left text-white"
             >
               <video
+                ref={(video) => {
+                  trendingVideoRefs.current[index] = video
+                }}
                 src={reel.video_url}
                 poster={reel.thumbnail_url || undefined}
                 muted
-                loop
-                autoPlay
                 playsInline
                 preload="metadata"
+                onLoadedMetadata={(event) => {
+                  if (index !== currentTrendingIndex) {
+                    event.currentTarget.pause()
+                    event.currentTarget.currentTime = 0
+                  }
+                }}
                 className="absolute inset-0 h-full w-full object-cover"
               />
               <span className="absolute inset-0 bg-gradient-to-t from-black/85 via-transparent to-transparent" />
@@ -633,21 +724,64 @@ function Home({ reels, loading, error, token, onOpenFeed, onOrder }) {
         </div>
       </section>
 
+      <section className="mt-6">
+        <div className="mb-3 flex items-center justify-between px-4">
+          <h2 className="text-lg font-extrabold">Dishes</h2>
+        </div>
+        <div className="flex gap-3 overflow-x-auto px-4 pb-2">
+          {filteredDishes.map((food) => (
+            <button
+              key={food.id}
+              type="button"
+              onClick={() => onOrder(orderItemForFood(food))}
+              className="w-40 shrink-0 overflow-hidden rounded-2xl border border-[#E5E7EB] bg-white text-left shadow-sm"
+              aria-label={`Order ${food.name}`}
+            >
+              <span className="relative block aspect-[4/3] bg-gray-50">
+                {food.image_url && (
+                  <img src={food.image_url} alt="" className="h-full w-full object-cover" />
+                )}
+                <span
+                  className={`absolute right-2 top-2 size-3 rounded-full border-2 border-white ${
+                    isVegetarian(food.is_veg) ? 'bg-emerald-500' : 'bg-red-600'
+                  }`}
+                  aria-label={isVegetarian(food.is_veg) ? 'Vegetarian' : 'Non-vegetarian'}
+                />
+              </span>
+              <span className="block p-3">
+                <span className="block truncate text-sm font-bold text-[#1F2937]">{food.name}</span>
+                <span className="mt-0.5 block truncate text-xs text-gray-500">
+                  {food.restaurants?.name ?? ''}
+                </span>
+                <span className="mt-2 block text-sm font-extrabold text-[#FF6600]">₹{food.price}</span>
+              </span>
+            </button>
+          ))}
+          {!filteredDishes.length && (
+            <p className="rounded-2xl border border-[#E5E7EB] bg-white px-4 py-5 text-sm text-gray-500">
+              {dishesLoading
+                ? 'Loading dishes…'
+                : dishesError || 'No dishes match these filters.'}
+            </p>
+          )}
+        </div>
+      </section>
+
       <section className="mt-6 pb-5">
         <div className="mb-3 flex items-center justify-between px-4">
           <h2 className="text-lg font-extrabold">Recommended Dishes</h2>
         </div>
         <div className="grid grid-cols-2 gap-3 px-4">
-          {filteredDishes.map(({ food, reel }) => (
+          {filteredDishes.map((food) => (
             <article
               key={food.id}
               className="overflow-hidden rounded-2xl border border-orange-500/20 bg-white/85 shadow-sm backdrop-blur-md"
             >
               <button
                 type="button"
-                onClick={() => onOpenFeed(reel)}
+                onClick={() => onOrder(orderItemForFood(food))}
                 className="relative block aspect-[4/3] w-full bg-orange-50"
-                aria-label={`Watch ${food.name}`}
+                aria-label={`Order ${food.name}`}
               >
                 {food.image_url && (
                   <img src={food.image_url} alt={food.name} className="h-full w-full object-cover" />
@@ -655,6 +789,12 @@ function Home({ reels, loading, error, token, onOpenFeed, onOrder }) {
               </button>
               <div className="p-3">
                 <h3 className="line-clamp-1 text-sm font-bold">{food.name}</h3>
+                <p className="mt-1 flex items-center gap-1 text-[10px] font-semibold">
+                  <span className={`size-2 rounded-full ${
+                    isVegetarian(food.is_veg) ? 'bg-emerald-500' : 'bg-red-600'
+                  }`} />
+                  {isVegetarian(food.is_veg) ? 'Veg' : 'Non-Veg'}
+                </p>
                 <p className="mt-0.5 truncate text-xs text-neutral-500">
                   {food.restaurants?.name ?? ''}
                 </p>
@@ -662,7 +802,7 @@ function Home({ reels, loading, error, token, onOpenFeed, onOrder }) {
                   <span className="text-sm font-extrabold text-[#FF6600]">₹{food.price}</span>
                   <button
                     type="button"
-                    onClick={() => onOrder(reel)}
+                    onClick={() => onOrder(orderItemForFood(food))}
                     className="flex h-8 shrink-0 items-center gap-1.5 rounded-full bg-[#FF6600] px-3 text-xs font-bold text-white transition hover:bg-orange-600"
                     aria-label={`Order ${food.name}`}
                   >
@@ -673,9 +813,9 @@ function Home({ reels, loading, error, token, onOpenFeed, onOrder }) {
               </div>
             </article>
           ))}
-          {!loading && !filteredDishes.length && (
+          {!dishesLoading && !filteredDishes.length && (
             <p className="col-span-2 rounded-2xl border border-orange-500/20 bg-white/85 px-4 py-5 text-center text-sm text-neutral-500 shadow-sm backdrop-blur-md">
-              No dishes match these filters.
+              {dishesError || 'No dishes match these filters.'}
             </p>
           )}
         </div>

@@ -28,13 +28,24 @@ def serialize_food_item(item):
     }
 
 
+@food_items_routes.get("/food-items")
 @food_items_routes.get("/items")
 async def get_food_items(db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(FoodItem).order_by(FoodItem.name))
+    result = await db.execute(
+        select(FoodItem, Restaurant.name)
+        .outerjoin(Restaurant, FoodItem.restaurant_id == Restaurant.id)
+        .order_by(FoodItem.name)
+    )
     return {
         "message": "List of food items",
         "status_code": 200,
-        "data": [serialize_food_item(item) for item in result.scalars().all()],
+        "data": [
+            {
+                **serialize_food_item(item),
+                "restaurants": {"name": restaurant_name} if restaurant_name else None,
+            }
+            for item, restaurant_name in result.all()
+        ],
     }
 
 

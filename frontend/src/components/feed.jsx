@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Bookmark,
   CircleUserRound,
@@ -14,6 +14,8 @@ import {
   Minus,
   Volume2,
   VolumeX,
+  Play,
+  Pause,
 } from 'lucide-react'
 import UploadScreen from './UploadScreen.jsx'
 import Home from './Home.jsx'
@@ -23,6 +25,11 @@ import { API_BASE_URL } from '../api.js'
 import { getDeliveryEtaMinutes } from '../utils/eta.js'
 
 const FEED_URL = `${API_BASE_URL}/feed`
+const VEG_VALUES = ['true', '1', 'yes', 'veg', 'vegetarian']
+
+function isVegetarian(value) {
+  return VEG_VALUES.includes(String(value ?? '').toLowerCase())
+}
 
 function getAuthHeaders(token) {
   return {
@@ -58,13 +65,19 @@ async function requestInteraction(videoId, action, token, query = '', method = '
   return response
 }
 
-function Reel({ item, index, onRequireAuth, onVisible, onOrder, onDishOpen }) {
+function Reel({ item, index, isActive, onRequireAuth, onVisible, onOrder, onDishOpen }) {
   const sectionRef = useRef(null)
   const videoRef = useRef(null)
   const likeIconRef = useRef(null)
   const userPausedRef = useRef(false)
   const tapTimeoutRef = useRef(null)
+  const feedbackTimeoutRef = useRef(null)
+  const timelineRef = useRef(null)
+  const [isVisible, setIsVisible] = useState(false)
   const [isMuted, setIsMuted] = useState(true)
+  const [feedback, setFeedback] = useState('')
+  const [currentTime, setCurrentTime] = useState(0)
+  const [duration, setDuration] = useState(0)
   const [isLiked, setIsLiked] = useState(Boolean(item.is_liked))
   const [isSaved, setIsSaved] = useState(Boolean(item.is_saved))
   const [isCommentOpen, setIsCommentOpen] = useState(false)
@@ -85,13 +98,12 @@ function Reel({ item, index, onRequireAuth, onVisible, onOrder, onDishOpen }) {
 
     const observer = new IntersectionObserver(
       ([entry]) => {
-        if (entry.isIntersecting && !userPausedRef.current) {
+        const isCurrentSection = entry.intersectionRatio >= 0.6
+        setIsVisible(isCurrentSection)
+        if (isCurrentSection) {
           onVisible(index)
-          video.play().catch((error) => {
-            console.error('Unable to play reel video', error)
-          })
         } else {
-          video.pause()
+          setCurrentTime(0)
         }
       },
       { threshold: 0.6 },
@@ -101,7 +113,26 @@ function Reel({ item, index, onRequireAuth, onVisible, onOrder, onDishOpen }) {
     return () => observer.disconnect()
   }, [index, onVisible])
 
-  useEffect(() => () => clearTimeout(tapTimeoutRef.current), [])
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video) return
+    if (isVisible && isActive && !userPausedRef.current) {
+      video.play().catch((error) => {
+        console.error('Unable to play reel video', error)
+      })
+    } else {
+      video.pause()
+      if (!isVisible) {
+        video.currentTime = 0
+      }
+    }
+  }, [isActive, isVisible])
+
+  useEffect(() => () => {
+    clearTimeout(tapTimeoutRef.current)
+    clearTimeout(feedbackTimeoutRef.current)
+    videoRef.current?.pause()
+  }, [])
 
   useEffect(() => {
     if (!interactionError && !shareError) return undefined
@@ -166,20 +197,24 @@ function Reel({ item, index, onRequireAuth, onVisible, onOrder, onDishOpen }) {
 
     if (video.paused) {
       userPausedRef.current = false
+      setFeedback('play')
       video.play().catch((error) => {
         console.error('Unable to play reel video', error)
       })
     } else {
       userPausedRef.current = true
+      setFeedback('pause')
       video.pause()
     }
+    clearTimeout(feedbackTimeoutRef.current)
+    feedbackTimeoutRef.current = window.setTimeout(() => setFeedback(''), 600)
   }
 
   const handleVideoTap = () => {
     if (tapTimeoutRef.current) {
       clearTimeout(tapTimeoutRef.current)
       tapTimeoutRef.current = null
-      setIsMuted((muted) => !muted)
+      toggleMute()
       return
     }
 
@@ -187,6 +222,23 @@ function Reel({ item, index, onRequireAuth, onVisible, onOrder, onDishOpen }) {
       tapTimeoutRef.current = null
       togglePlayback()
     }, 300)
+  }
+
+  const toggleMute = () => {
+    setIsMuted((muted) => !muted)
+    setFeedback('volume')
+    clearTimeout(feedbackTimeoutRef.current)
+    feedbackTimeoutRef.current = window.setTimeout(() => setFeedback(''), 600)
+  }
+
+  const seekToPointer = (event) => {
+    const video = videoRef.current
+    const timeline = timelineRef.current
+    if (!video || !timeline || !Number.isFinite(video.duration)) return
+    const bounds = timeline.getBoundingClientRect()
+    const progress = Math.max(0, Math.min(1, (event.clientX - bounds.left) / bounds.width))
+    video.currentTime = progress * video.duration
+    setCurrentTime(video.currentTime)
   }
 
   const animateLike = () => {
@@ -335,19 +387,41 @@ function Reel({ item, index, onRequireAuth, onVisible, onOrder, onDishOpen }) {
         className="absolute inset-0 h-full w-full object-cover"
         src={item.video_url}
         poster={item.thumbnail_url || undefined}
-        autoPlay
         loop
         muted={isMuted}
         playsInline
-        preload="auto"
+        preload="metadata"
         onClick={handleVideoTap}
+        onLoadedMetadata={(event) => setDuration(event.currentTarget.duration || 0)}
+        onDurationChange={(event) => setDuration(event.currentTarget.duration || 0)}
+        onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)}
+        onSeeked={(event) => setCurrentTime(event.currentTarget.currentTime)}
         aria-label={item.title || dishName || 'Reel video'}
       />
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/10 via-transparent to-black/35" />
 
+      <div
+        className={`pointer-events-none absolute left-1/2 top-1/2 z-20 grid size-16 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border border-white/40 bg-white/25 text-white shadow-xl backdrop-blur-md transition-all duration-[600ms] ${
+          feedback === 'play' || feedback === 'pause'
+            ? 'scale-100 opacity-100'
+              : 'scale-75 opacity-0'
+        }`}
+        aria-hidden="true"
+      >
+        {feedback === 'play' ? <Play size={30} fill="white" /> : <Pause size={30} fill="white" />}
+      </div>
+      <div
+        className={`pointer-events-none absolute left-1/2 top-[58%] z-20 grid size-12 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border border-white/40 bg-white/25 text-white shadow-xl backdrop-blur-md transition-all duration-[600ms] ${
+          feedback === 'volume' ? 'scale-100 opacity-100' : 'scale-75 opacity-0'
+        }`}
+        aria-hidden="true"
+      >
+        {isMuted ? <VolumeX size={23} /> : <Volume2 size={23} />}
+      </div>
+
       <button
         type="button"
-        onClick={() => setIsMuted((muted) => !muted)}
+        onClick={toggleMute}
         className="absolute right-3 top-3 z-20 grid size-10 place-items-center rounded-full border border-white/25 bg-black/35 text-white shadow-lg backdrop-blur-md"
         aria-label={isMuted ? 'Unmute video' : 'Mute video'}
       >
@@ -478,6 +552,35 @@ function Reel({ item, index, onRequireAuth, onVisible, onOrder, onDishOpen }) {
             <span className="mt-0.5 text-[11px] font-semibold">Save</span>
           </button>
       </aside>
+
+      <div
+        ref={timelineRef}
+        role="slider"
+        tabIndex={0}
+        aria-label="Video timeline"
+        aria-valuemin={0}
+        aria-valuemax={Math.floor(duration)}
+        aria-valuenow={Math.floor(currentTime)}
+        className="absolute inset-x-0 bottom-0 z-30 h-2 touch-none cursor-pointer bg-white/35"
+        onPointerDown={(event) => {
+          event.currentTarget.setPointerCapture(event.pointerId)
+          seekToPointer(event)
+        }}
+        onPointerMove={(event) => {
+          if (event.buttons === 1) seekToPointer(event)
+        }}
+        onKeyDown={(event) => {
+          const video = videoRef.current
+          if (!video || !duration) return
+          if (event.key === 'ArrowRight') video.currentTime = Math.min(duration, video.currentTime + 5)
+          if (event.key === 'ArrowLeft') video.currentTime = Math.max(0, video.currentTime - 5)
+        }}
+      >
+        <div
+          className="h-full bg-[#FF6600]"
+          style={{ width: `${duration ? Math.min((currentTime / duration) * 100, 100) : 0}%` }}
+        />
+      </div>
 
       {isCommentOpen && (
         <div className="absolute inset-0 z-30 flex items-end bg-black/45">
@@ -638,7 +741,7 @@ function AuthModal({ onClose, onAuthenticated }) {
       onClick={onClose}
     >
       <section
-        className="w-full max-w-md rounded-t-3xl border border-white/15 bg-neutral-950/95 px-5 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-5 text-white shadow-2xl shadow-black/50"
+        className="w-full max-w-md rounded-t-3xl border border-gray-200 bg-white px-5 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-5 text-[#1F2937] shadow-2xl shadow-black/20"
         role="dialog"
         aria-modal="true"
         aria-labelledby="auth-sheet-title"
@@ -649,19 +752,19 @@ function AuthModal({ onClose, onAuthenticated }) {
             <h2 id="auth-sheet-title" className="text-xl font-extrabold">
               Welcome to Biteflow
             </h2>
-            <p className="mt-1 text-sm text-white/60">Sign in to keep going</p>
+            <p className="mt-1 text-sm text-gray-500">Sign in to keep going</p>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="grid size-9 place-items-center rounded-full bg-white/70"
+            className="grid size-9 place-items-center rounded-full bg-gray-100"
             aria-label="Close login"
           >
             <X size={20} />
           </button>
         </div>
 
-        <div className="mb-5 grid grid-cols-2 rounded-xl bg-white/5 p-1">
+        <div className="mb-5 grid grid-cols-2 rounded-xl bg-gray-100 p-1">
           <button
             type="button"
             onClick={() => {
@@ -670,7 +773,7 @@ function AuthModal({ onClose, onAuthenticated }) {
               setNotice('')
             }}
             className={`rounded-lg py-2.5 text-sm font-bold ${
-              mode === 'login' ? 'bg-[#FF6600] text-white' : 'text-white/65'
+              mode === 'login' ? 'bg-[#FF6600] text-white' : 'text-gray-600'
             }`}
           >
             Login
@@ -683,7 +786,7 @@ function AuthModal({ onClose, onAuthenticated }) {
               setNotice('')
             }}
             className={`rounded-lg py-2.5 text-sm font-bold ${
-              mode === 'register' ? 'bg-[#FF6600] text-white' : 'text-white/65'
+              mode === 'register' ? 'bg-[#FF6600] text-white' : 'text-gray-600'
             }`}
           >
             Sign Up
@@ -693,18 +796,18 @@ function AuthModal({ onClose, onAuthenticated }) {
         <form onSubmit={submit} className="space-y-3.5">
           {mode === 'register' && (
             <>
-              <label className="block text-xs font-semibold text-white/70">
+              <label className="block text-xs font-semibold text-gray-700">
                 Name
                 <input
                   autoComplete="name"
                   required
                   value={name}
                   onChange={(event) => setName(event.target.value)}
-                  className="mt-1.5 w-full rounded-xl border border-white/15 bg-white/5 px-3.5 py-3 text-sm text-white outline-none placeholder:text-white/35 focus:border-[#FF6600]"
+                  className="mt-1.5 w-full rounded-xl border border-gray-200 bg-white px-3.5 py-3 text-sm text-[#1F2937] outline-none placeholder:text-gray-400 focus:border-[#FF6600]"
                   placeholder="Your name"
                 />
               </label>
-              <label className="block text-xs font-semibold text-white/70">
+              <label className="block text-xs font-semibold text-gray-700">
                 Phone number
                 <input
                   autoComplete="tel"
@@ -714,13 +817,13 @@ function AuthModal({ onClose, onAuthenticated }) {
                   required
                   value={phone}
                   onChange={(event) => setPhone(event.target.value)}
-                  className="mt-1.5 w-full rounded-xl border border-white/15 bg-white/5 px-3.5 py-3 text-sm text-white outline-none placeholder:text-white/35 focus:border-[#FF6600]"
+                  className="mt-1.5 w-full rounded-xl border border-gray-200 bg-white px-3.5 py-3 text-sm text-[#1F2937] outline-none placeholder:text-gray-400 focus:border-[#FF6600]"
                   placeholder="10-digit phone number"
                 />
               </label>
             </>
           )}
-          <label className="block text-xs font-semibold text-white/70">
+          <label className="block text-xs font-semibold text-gray-700">
             Email
             <input
               autoComplete="email"
@@ -728,11 +831,11 @@ function AuthModal({ onClose, onAuthenticated }) {
               required
               value={email}
               onChange={(event) => setEmail(event.target.value)}
-              className="mt-1.5 w-full rounded-xl border border-white/15 bg-white/5 px-3.5 py-3 text-sm text-white outline-none placeholder:text-white/35 focus:border-[#FF6600]"
+              className="mt-1.5 w-full rounded-xl border border-gray-200 bg-white px-3.5 py-3 text-sm text-[#1F2937] outline-none placeholder:text-gray-400 focus:border-[#FF6600]"
               placeholder="you@example.com"
             />
           </label>
-          <label className="block text-xs font-semibold text-white/70">
+          <label className="block text-xs font-semibold text-gray-700">
             Password
             <span className="relative mt-1.5 block">
               <input
@@ -743,13 +846,13 @@ function AuthModal({ onClose, onAuthenticated }) {
                 required
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
-                className="w-full rounded-xl border border-white/15 bg-white/5 px-3.5 py-3 pr-12 text-sm text-white outline-none placeholder:text-white/35 focus:border-[#FF6600]"
+                className="w-full rounded-xl border border-gray-200 bg-white px-3.5 py-3 pr-12 text-sm text-[#1F2937] outline-none placeholder:text-gray-400 focus:border-[#FF6600]"
                 placeholder="At least 6 characters"
               />
               <button
                 type="button"
                 onClick={() => setShowPassword((visible) => !visible)}
-                className="absolute inset-y-0 right-3 grid place-items-center text-white/55"
+                className="absolute inset-y-0 right-3 grid place-items-center text-gray-500"
                 aria-label={showPassword ? 'Hide password' : 'Show password'}
               >
                 {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
@@ -788,6 +891,7 @@ function AuthModal({ onClose, onAuthenticated }) {
 function OrderSheet({ reel, onClose, onRequireAuth, onSuccess }) {
   const [quantity, setQuantity] = useState(1)
   const [deliveryNote, setDeliveryNote] = useState('')
+  const [selectedInstructions, setSelectedInstructions] = useState([])
   const [deliveryAddressMode, setDeliveryAddressMode] = useState(() =>
     localStorage.getItem('biteflow_location') ? 'current' : 'manual',
   )
@@ -821,7 +925,9 @@ function OrderSheet({ reel, onClose, onRequireAuth, onSuccess }) {
                 food_item_id: reel.food_item_id ?? food?.id,
                 video_id: reel.id ?? null,
                 quantity,
-                delivery_note: deliveryNote.trim(),
+                delivery_note: [...selectedInstructions, deliveryNote.trim()]
+                  .filter(Boolean)
+                  .join(', '),
                 delivery_address:
                   deliveryAddressMode === 'current'
                     ? savedAddress
@@ -984,12 +1090,33 @@ function OrderSheet({ reel, onClose, onRequireAuth, onSuccess }) {
         </fieldset>
 
         <label className="mt-4 block text-sm font-semibold text-neutral-700">
-          Special instructions
+          Cooking instructions
+          <div className="mt-2 flex flex-wrap gap-2">
+            {['Extra Cheese', 'Less Spicy', 'Extra Sauce'].map((instruction) => (
+              <button
+                key={instruction}
+                type="button"
+                onClick={() => setSelectedInstructions((current) =>
+                  current.includes(instruction)
+                    ? current.filter((entry) => entry !== instruction)
+                    : [...current, instruction],
+                )}
+                className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+                  selectedInstructions.includes(instruction)
+                    ? 'border-[#FF6600] bg-orange-50 text-[#FF6600]'
+                    : 'border-gray-200 bg-white/70 text-gray-600'
+                }`}
+                aria-pressed={selectedInstructions.includes(instruction)}
+              >
+                + {instruction}
+              </button>
+            ))}
+          </div>
           <textarea
             rows={2}
             value={deliveryNote}
             onChange={(event) => setDeliveryNote(event.target.value)}
-            placeholder="Hostel / Gate / Special instructions..."
+            placeholder="e.g., Extra cheese, less spicy, no onions..."
             className="mt-2 w-full resize-none rounded-xl border border-white/60 bg-white/65 px-3.5 py-3 text-sm text-neutral-800 outline-none placeholder:text-neutral-400 focus:border-[#FF6600]"
           />
         </label>
@@ -1019,6 +1146,7 @@ function OrderSheet({ reel, onClose, onRequireAuth, onSuccess }) {
 
 function Feed({ activeTab, onActiveTabChange, createRequest }) {
   const [reels, setReels] = useState([])
+  const [foodPreference, setFoodPreference] = useState('non-veg')
   const [nextOffset, setNextOffset] = useState(null)
   const [hasMore, setHasMore] = useState(false)
   const [activeIndex, setActiveIndex] = useState(0)
@@ -1037,11 +1165,21 @@ function Feed({ activeTab, onActiveTabChange, createRequest }) {
   const loadingMoreRef = useRef(false)
   const previousTabRef = useRef('home')
   const onVisibleReel = useCallback((index) => setActiveIndex(index), [])
+  const visibleReels = useMemo(
+    () => foodPreference === 'veg'
+      ? reels.filter((reel) => isVegetarian(reel.food_item?.is_veg))
+      : reels,
+    [foodPreference, reels],
+  )
+  const changeFoodPreference = (preference) => {
+    setFoodPreference(preference)
+    setActiveIndex(0)
+  }
 
   const openBites = (target = 0) => {
     const index = typeof target === 'number'
       ? target
-      : reels.findIndex((reel) => reel.id === target?.id)
+      : visibleReels.findIndex((reel) => reel.id === target?.id)
     onActiveTabChange('feed')
     setActiveIndex(Math.max(index, 0))
     requestAnimationFrame(() => {
@@ -1158,7 +1296,7 @@ function Feed({ activeTab, onActiveTabChange, createRequest }) {
       !hasMore ||
       loading ||
       loadingMoreRef.current ||
-      activeIndex < reels.length - 2
+      activeIndex < visibleReels.length - 2
     ) {
       return
     }
@@ -1206,7 +1344,7 @@ function Feed({ activeTab, onActiveTabChange, createRequest }) {
 
     fetchMore()
     return () => controller.abort()
-  }, [activeIndex, hasMore, loading, nextOffset, reels.length, token])
+  }, [activeIndex, hasMore, loading, nextOffset, reels.length, token, visibleReels.length])
 
   return (
     <>
@@ -1216,6 +1354,8 @@ function Feed({ activeTab, onActiveTabChange, createRequest }) {
           loading={loading}
           error={error}
           token={token}
+          foodMode={foodPreference}
+          onFoodModeChange={changeFoodPreference}
           onOpenFeed={openBites}
           onOrder={openOrder}
         />
@@ -1241,17 +1381,18 @@ function Feed({ activeTab, onActiveTabChange, createRequest }) {
             <p className="font-semibold">Unable to load Bites</p>
             <p className="text-sm text-white/75">{error}</p>
           </main>
-        ) : reels.length === 0 ? (
+        ) :         visibleReels.length === 0 ? (
           <main className="mx-auto flex h-[100dvh] w-full max-w-md items-center justify-center bg-black px-8 text-center text-white/75">
             No Bites are available.
           </main>
         ) : (
           <main className="mx-auto w-full max-w-md bg-black">
-            {reels.map((item, index) => (
+            {visibleReels.map((item, index) => (
               <Reel
                 key={item.id ?? index}
                 item={item}
                 index={index}
+                isActive={index === activeIndex}
                 onRequireAuth={requireAuth}
                 onVisible={onVisibleReel}
                 onOrder={openOrder}
@@ -1266,7 +1407,7 @@ function Feed({ activeTab, onActiveTabChange, createRequest }) {
           </main>
         )
       )}
-      {uploadOpen && (
+      {uploadOpen && activeTab === 'upload' && (
         <UploadScreen
           token={token}
           onClose={closeUpload}

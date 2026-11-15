@@ -129,6 +129,7 @@ function UploadScreen({ token, onClose, onPosted }) {
 
     async function openCamera() {
       setCameraError('')
+      if (showDetails) return
       if (!navigator.mediaDevices?.getUserMedia) {
         setCameraError('Camera access is not available in this browser. Choose a video from your gallery.')
         return
@@ -162,16 +163,25 @@ function UploadScreen({ token, onClose, onPosted }) {
       localStream?.getTracks().forEach((track) => track.stop())
       if (streamRef.current === localStream) streamRef.current = null
     }
-  }, [facingMode])
+  }, [facingMode, showDetails])
 
   useEffect(() => {
     return () => {
       if (previewUrl) URL.revokeObjectURL(previewUrl)
-      if (countdownRef.current) clearInterval(countdownRef.current)
-      if (recordingTimerRef.current) clearInterval(recordingTimerRef.current)
-      if (musicObjectUrlRef.current) URL.revokeObjectURL(musicObjectUrlRef.current)
     }
   }, [previewUrl])
+
+  useEffect(() => () => {
+    const previewVideo = cameraPreviewRef.current
+    if (previewVideo) {
+      previewVideo.pause()
+      previewVideo.removeAttribute('src')
+      previewVideo.load()
+    }
+    if (countdownRef.current) clearInterval(countdownRef.current)
+    if (recordingTimerRef.current) clearInterval(recordingTimerRef.current)
+    if (musicObjectUrlRef.current) URL.revokeObjectURL(musicObjectUrlRef.current)
+  }, [])
 
   useEffect(() => {
     if (cameraPreviewRef.current) cameraPreviewRef.current.playbackRate = speed
@@ -354,6 +364,12 @@ function UploadScreen({ token, onClose, onPosted }) {
   }
 
   const openDetails = async () => {
+    const previewVideo = cameraPreviewRef.current
+    if (previewVideo) {
+      previewVideo.pause()
+      previewVideo.removeAttribute('src')
+      previewVideo.load()
+    }
     setShowDetails(true)
     setWizardStep('restaurant')
     setError('')
@@ -553,9 +569,9 @@ function UploadScreen({ token, onClose, onPosted }) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col justify-between overflow-hidden bg-black text-white">
+    <div className="fixed inset-0 z-50 flex flex-col justify-between overflow-hidden bg-white text-[#1F2937]">
       <div
-        className="absolute inset-x-0 top-0 z-40 h-1 bg-white/15"
+        className="absolute inset-x-0 top-0 z-40 h-1 bg-gray-200"
         role="progressbar"
         aria-label="Recording duration"
         aria-valuemin={0}
@@ -568,47 +584,51 @@ function UploadScreen({ token, onClose, onPosted }) {
         />
       </div>
 
-      {previewUrl ? (
-        <video
-          ref={cameraPreviewRef}
-          src={previewUrl}
-          className="absolute inset-0 h-full w-full object-cover"
-          autoPlay
-          loop
-          muted
-          playsInline
-          style={{ filter: activeFilter.css }}
-        />
-      ) : cameraStream ? (
-        <CameraPreview stream={cameraStream} filter={activeFilter.css} />
-      ) : (
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 px-8 text-center">
-          <Camera size={44} className="text-white/60" />
-          <p className="text-sm text-white/75">{cameraError || 'Starting camera…'}</p>
+      {!showDetails && (
+        <div className={`absolute inset-x-4 bottom-56 top-24 z-0 overflow-hidden rounded-3xl shadow-lg ${
+          recording ? 'bg-[#1F2937]' : 'bg-gray-100'
+        }`}>
+          {previewUrl ? (
+            <video
+              ref={cameraPreviewRef}
+              src={previewUrl}
+              className="absolute inset-0 h-full w-full object-cover"
+              autoPlay
+              muted
+              playsInline
+              preload="metadata"
+              style={{ filter: activeFilter.css }}
+            />
+          ) : cameraStream ? (
+            <CameraPreview stream={cameraStream} filter={activeFilter.css} />
+          ) : (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 px-8 text-center text-gray-700">
+              <Camera size={44} className="text-gray-400" />
+              <p className="text-sm text-gray-600">{cameraError || 'Starting camera…'}</p>
+            </div>
+          )}
         </div>
       )}
       {publishToast && (
         <div
           role="status"
-          className="fixed bottom-6 left-1/2 z-[80] w-[calc(100%-2rem)] max-w-md -translate-x-1/2 rounded-full bg-neutral-900/95 px-4 py-3 text-center text-sm font-semibold text-white shadow-xl"
+          className="fixed bottom-6 left-1/2 z-[80] w-[calc(100%-2rem)] max-w-md -translate-x-1/2 rounded-full bg-[#1F2937] px-4 py-3 text-center text-sm font-semibold text-white shadow-xl"
         >
           {publishToast}
         </div>
       )}
-
-      <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/40 via-transparent to-black/35" />
 
       <header className="relative z-20 flex flex-col gap-3 px-4 pb-3 pt-6">
         <div className="flex items-center justify-between">
           <button
             type="button"
             onClick={onClose}
-            className="grid size-10 place-items-center rounded-full bg-black/35"
+            className="grid size-10 place-items-center rounded-full border border-gray-200 bg-white text-[#1F2937]"
             aria-label="Close upload"
           >
             <X size={23} />
           </button>
-          <p className="text-xs font-bold text-white/85">
+          <p className="text-xs font-bold text-gray-600">
             {recording
               ? `${recordingDuration.toFixed(1)}s / ${maxDuration.toFixed(1)}s`
               : musicFileName || 'Choose a duration'}
@@ -620,7 +640,7 @@ function UploadScreen({ token, onClose, onPosted }) {
             className={`grid size-10 place-items-center rounded-full border ${
               musicFileName
                 ? 'border-[#FF6600] bg-[#FF6600] text-white'
-                : 'border-[#FF6600]/50 bg-[#FF6600]/25 text-white'
+                : 'border-[#FF6600]/50 bg-orange-50 text-[#FF6600]'
             }`}
             aria-label={musicFileName ? `Selected music: ${musicFileName}. Choose another clip` : 'Choose music clip'}
             title={musicFileName || 'Choose music'}
@@ -646,7 +666,7 @@ function UploadScreen({ token, onClose, onPosted }) {
                 className={`rounded-full border px-3 py-1.5 text-xs font-bold backdrop-blur-md transition ${
                   durationPreset === seconds
                     ? 'border-[#FF6600] bg-[#FF6600]/80 text-white'
-                    : 'border-white/25 bg-black/35 text-white/80'
+                    : 'border-gray-200 bg-white text-gray-600'
                 } disabled:opacity-50`}
                 aria-pressed={durationPreset === seconds}
               >
@@ -661,7 +681,7 @@ function UploadScreen({ token, onClose, onPosted }) {
                 className={`max-w-32 truncate rounded-full border px-3 py-1.5 text-xs font-bold backdrop-blur-md transition ${
                   durationPreset === 'music'
                     ? 'border-[#FF6600] bg-[#FF6600]/80 text-white'
-                    : 'border-white/25 bg-black/35 text-white/80'
+                    : 'border-gray-200 bg-white text-gray-600'
                 } disabled:opacity-50`}
                 aria-pressed={durationPreset === 'music'}
               >
@@ -677,8 +697,8 @@ function UploadScreen({ token, onClose, onPosted }) {
           <button
             type="button"
             onClick={toggleFlash}
-            className={`grid size-11 place-items-center rounded-full border border-[#FF6600]/50 bg-[#FF6600]/25 text-[#FF6600] ${
-              flashEnabled ? 'bg-[#FF6600]/60 text-white' : ''
+            className={`grid size-11 place-items-center rounded-full border border-[#FF6600]/50 bg-white text-[#FF6600] shadow-sm ${
+              flashEnabled ? 'bg-[#FF6600] text-white' : ''
             }`}
             aria-label={flashEnabled ? 'Turn flash off' : 'Turn flash on'}
           >
@@ -687,7 +707,7 @@ function UploadScreen({ token, onClose, onPosted }) {
           <button
             type="button"
             onClick={changeSpeed}
-            className="grid size-11 place-items-center rounded-full border border-[#FF6600]/50 bg-[#FF6600]/25 text-xs font-bold text-white"
+            className="grid size-11 place-items-center rounded-full border border-[#FF6600]/50 bg-white text-xs font-bold text-[#FF6600] shadow-sm"
             aria-label={`Playback speed ${speed}x`}
           >
             {speed}x
@@ -695,7 +715,7 @@ function UploadScreen({ token, onClose, onPosted }) {
           <button
             type="button"
             onClick={() => setCountdown((current) => (current === 0 ? 3 : current === 3 ? 10 : 0))}
-            className="grid size-11 place-items-center rounded-full border border-[#FF6600]/50 bg-[#FF6600]/25 text-white"
+            className="grid size-11 place-items-center rounded-full border border-[#FF6600]/50 bg-white text-[#FF6600] shadow-sm"
             aria-label={`Countdown ${countdown ? `${countdown} seconds` : 'off'}`}
           >
             <span className="flex flex-col items-center">
@@ -706,7 +726,7 @@ function UploadScreen({ token, onClose, onPosted }) {
           <button
             type="button"
             onClick={() => setFacingMode((mode) => (mode === 'environment' ? 'user' : 'environment'))}
-            className="grid size-11 place-items-center rounded-full border border-[#FF6600]/50 bg-[#FF6600]/25 text-white"
+            className="grid size-11 place-items-center rounded-full border border-[#FF6600]/50 bg-white text-[#FF6600] shadow-sm"
             aria-label="Switch camera"
           >
             <RotateCcw size={21} />
@@ -715,7 +735,7 @@ function UploadScreen({ token, onClose, onPosted }) {
       )}
 
       {countdownValue !== null && (
-        <div className="absolute inset-0 z-30 grid place-items-center text-7xl font-black text-white drop-shadow-lg">
+        <div className="absolute inset-x-4 bottom-56 top-24 z-30 grid place-items-center text-7xl font-black text-white drop-shadow-lg">
           {countdownValue}
         </div>
       )}
@@ -730,7 +750,7 @@ function UploadScreen({ token, onClose, onPosted }) {
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
                 disabled={recording}
-                className="absolute bottom-4 left-7 grid size-12 place-items-center rounded-full bg-[#FF6600]/25 text-white disabled:opacity-40"
+                className="absolute bottom-4 left-7 grid size-12 place-items-center rounded-full border border-orange-200 bg-white text-[#FF6600] disabled:opacity-40"
                 aria-label="Choose video from gallery"
               >
                 <Images size={24} />
@@ -747,17 +767,17 @@ function UploadScreen({ token, onClose, onPosted }) {
                   type="button"
                   onClick={recording ? stopRecording : startRecording}
                   disabled={!cameraStream || countdownValue !== null}
-                  className="grid size-[76px] place-items-center rounded-full border-[5px] border-white bg-transparent disabled:opacity-50"
+                  className="grid size-[76px] place-items-center rounded-full border-[5px] border-[#FF6600] bg-white/80 disabled:opacity-50"
                   aria-label={recording ? 'Stop recording' : 'Capture video'}
                 >
                   <Circle
                     size={51}
-                    fill={recording ? '#FF6600' : '#EF4444'}
-                    stroke={recording ? '#FF6600' : '#EF4444'}
+                    fill={recording ? '#FF6600' : '#FFFFFF'}
+                    stroke={recording ? '#FF6600' : '#FF6600'}
                     className={recording ? 'animate-pulse' : ''}
                   />
                 </button>
-                <span className="mt-1 text-[10px] font-bold text-white/85">
+                <span className="mt-1 text-[10px] font-bold text-[#1F2937]">
                   {recording ? 'Stop' : 'Capture'}
                 </span>
               </div>
@@ -785,20 +805,20 @@ function UploadScreen({ token, onClose, onPosted }) {
                 key={filter.name}
                 type="button"
                 onClick={() => setFilterIndex(index)}
-                className={`flex w-14 shrink-0 flex-col items-center gap-0.5 rounded-xl border px-1 py-1 text-white backdrop-blur-md transition-all duration-200 ${
+                className={`flex w-14 shrink-0 flex-col items-center gap-0.5 rounded-xl border px-1 py-1 text-[#1F2937] shadow-sm backdrop-blur-md transition-all duration-200 ${
                   active
-                    ? 'border-[#FF6600] bg-black/65'
-                    : 'border-white/20 bg-black/35 opacity-80'
+                    ? 'border-[#FF6600] bg-white'
+                    : 'border-gray-200 bg-white/90 opacity-80'
                 }`}
                 aria-label={`Preview ${filter.name} filter`}
                 aria-pressed={active}
                 title={filter.name}
               >
-                <span className={`grid place-items-center rounded-full border-2 bg-black/35 ${
-                  active ? 'size-9 border-[#FF6600]' : 'size-8 border-white/70'
+                <span className={`grid place-items-center rounded-full border-2 bg-gray-50 ${
+                  active ? 'size-9 border-[#FF6600]' : 'size-8 border-gray-300'
                 }`}>
                   <span
-                    className="size-6 rounded-full border border-white/80 bg-gradient-to-br from-amber-300 via-orange-500 to-rose-700"
+                    className="size-6 rounded-full border border-white bg-gradient-to-br from-amber-300 via-orange-500 to-rose-700"
                     style={{ filter: filter.css }}
                   />
                 </span>
@@ -826,15 +846,15 @@ function UploadScreen({ token, onClose, onPosted }) {
         <button
           type="button"
           onClick={() => fileInputRef.current?.click()}
-          className="absolute bottom-28 left-1/2 z-20 -translate-x-1/2 whitespace-nowrap rounded-full bg-[#FF6600] px-6 py-3 text-sm font-bold"
+          className="absolute bottom-28 left-1/2 z-20 -translate-x-1/2 whitespace-nowrap rounded-full bg-[#FF6600] px-6 py-3 text-sm font-bold text-white"
         >
           Choose a video
         </button>
       )}
 
       {showDetails && (
-        <div className="fixed inset-0 z-40 flex flex-col overflow-hidden bg-neutral-950/98 text-white">
-          <div className="flex items-center gap-3 border-b border-white/10 px-4 pb-4 pt-[max(1rem,env(safe-area-inset-top))]">
+        <div className="fixed inset-0 z-40 flex flex-col overflow-hidden bg-white text-[#1F2937]">
+          <div className="flex items-center gap-3 border-b border-gray-200 px-4 pb-4 pt-[max(1rem,env(safe-area-inset-top))]">
             <button
               type="button"
               onClick={() => {
@@ -843,14 +863,14 @@ function UploadScreen({ token, onClose, onPosted }) {
                 else setWizardStep('dish')
                 setError('')
               }}
-              className="grid size-10 shrink-0 place-items-center rounded-full border border-white/15 bg-white/5"
+              className="grid size-10 shrink-0 place-items-center rounded-full border border-gray-200 bg-white"
               aria-label={wizardStep === 'restaurant' ? 'Back to camera' : 'Previous step'}
               disabled={uploading}
             >
               <ArrowLeft size={20} />
             </button>
             <div className="min-w-0 flex-1">
-              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-orange-300">
+              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-orange-600">
                 Step {wizardStep === 'restaurant' ? 1 : wizardStep === 'dish' ? 2 : 3} of 3
               </p>
               <h2 className="truncate text-lg font-extrabold">
@@ -864,7 +884,7 @@ function UploadScreen({ token, onClose, onPosted }) {
             <button
               type="button"
               onClick={onClose}
-              className="grid size-10 shrink-0 place-items-center rounded-full border border-white/15 bg-white/5"
+              className="grid size-10 shrink-0 place-items-center rounded-full border border-gray-200 bg-white"
               aria-label="Close upload"
               disabled={uploading}
             >
@@ -872,7 +892,7 @@ function UploadScreen({ token, onClose, onPosted }) {
             </button>
           </div>
 
-          <div className="h-1 w-full bg-white/10">
+          <div className="h-1 w-full bg-gray-200">
             <div
               className="h-full bg-[#FF6600] transition-all duration-300"
               style={{
@@ -883,25 +903,25 @@ function UploadScreen({ token, onClose, onPosted }) {
 
           {wizardStep === 'restaurant' && (
             <section className="flex min-h-0 flex-1 flex-col px-4 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-5">
-              <p className="mb-4 text-sm text-white/60">
+              <p className="mb-4 text-sm text-gray-500">
                 Search by restaurant name or campus area.
               </p>
-              <label className="flex items-center gap-2 rounded-2xl border border-white/15 bg-white/5 px-4 py-3">
-                <Search size={18} className="text-orange-300" />
+              <label className="flex items-center gap-2 rounded-2xl border border-gray-200 bg-white px-4 py-3">
+                <Search size={18} className="text-[#FF6600]" />
                 <input
                   autoFocus
                   value={restaurantSearch}
                   onChange={(event) => setRestaurantSearch(event.target.value)}
                   placeholder="Search restaurants or areas"
-                  className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-white/40"
+                  className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-gray-400"
                   aria-label="Search restaurants"
                 />
                 {loadingRestaurants && (
-                  <span className="size-4 animate-spin rounded-full border-2 border-white/30 border-t-orange-400" />
+                  <span className="size-4 animate-spin rounded-full border-2 border-gray-200 border-t-[#FF6600]" />
                 )}
               </label>
               {error && (
-                <p role="alert" className="mt-3 rounded-xl bg-red-500/10 px-3 py-2 text-sm text-red-200">
+                <p role="alert" className="mt-3 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">
                   {error}
                 </p>
               )}
@@ -912,26 +932,26 @@ function UploadScreen({ token, onClose, onPosted }) {
                     type="button"
                     disabled={loadingMenu}
                     onClick={() => selectRestaurant(restaurant.id)}
-                    className="flex w-full items-center gap-3 rounded-2xl border border-white/10 bg-white/5 p-4 text-left transition hover:border-orange-400/50 hover:bg-white/10 disabled:opacity-50"
+                    className="flex w-full items-center gap-3 rounded-2xl border border-gray-200 bg-white p-4 text-left transition hover:border-orange-400 hover:bg-orange-50 disabled:opacity-50"
                   >
-                    <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-orange-500/15 text-orange-300">
+                    <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-orange-50 text-[#FF6600]">
                       <MapPin size={20} />
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-sm font-bold">{restaurant.name}</span>
-                      <span className="mt-1 block line-clamp-2 text-xs text-white/55">
+                      <span className="mt-1 block line-clamp-2 text-xs text-gray-500">
                         {restaurant.area || restaurant.address || restaurant.description || 'Campus restaurant'}
                       </span>
                     </span>
                     {loadingMenu && selectedRestaurantId === restaurant.id ? (
-                      <span className="size-4 animate-spin rounded-full border-2 border-white/30 border-t-orange-400" />
+                      <span className="size-4 animate-spin rounded-full border-2 border-gray-200 border-t-[#FF6600]" />
                     ) : (
-                      <span className="text-xs font-bold text-orange-300">Select</span>
+                      <span className="text-xs font-bold text-[#FF6600]">Select</span>
                     )}
                   </button>
                 ))}
                 {!loadingRestaurants && !filteredRestaurants.length && (
-                  <p className="rounded-2xl border border-white/10 bg-white/5 p-5 text-center text-sm text-white/55">
+                  <p className="rounded-2xl border border-gray-200 bg-gray-50 p-5 text-center text-sm text-gray-500">
                     {restaurants.length
                       ? 'No restaurants match your search.'
                       : 'No restaurants are available right now.'}
@@ -943,21 +963,21 @@ function UploadScreen({ token, onClose, onPosted }) {
 
           {wizardStep === 'dish' && (
             <section className="flex min-h-0 flex-1 flex-col px-4 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-5">
-              <p className="mb-3 truncate text-sm font-semibold text-orange-200">
+              <p className="mb-3 truncate text-sm font-semibold text-orange-700">
                 {selectedRestaurant?.name}
               </p>
-              <label className="flex items-center gap-2 rounded-2xl border border-white/15 bg-white/5 px-4 py-3">
-                <Search size={18} className="text-orange-300" />
+              <label className="flex items-center gap-2 rounded-2xl border border-gray-200 bg-white px-4 py-3">
+                <Search size={18} className="text-[#FF6600]" />
                 <input
                   value={dishSearch}
                   onChange={(event) => setDishSearch(event.target.value)}
                   placeholder="Search this menu"
-                  className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-white/40"
+                  className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-gray-400"
                   aria-label="Search menu"
                 />
               </label>
               <fieldset>
-                <legend className="mb-2 text-xs font-semibold text-white/75">Food type</legend>
+                <legend className="mb-2 text-xs font-semibold text-gray-700">Food type</legend>
                 <div className="grid grid-cols-2 gap-2">
                   {[true, false].map((veg) => (
                     <button
@@ -969,7 +989,7 @@ function UploadScreen({ token, onClose, onPosted }) {
                           ? veg
                             ? 'border-emerald-400 bg-emerald-500/20 text-emerald-100'
                             : 'border-red-400 bg-red-500/20 text-red-100'
-                          : 'border-white/15 bg-white/5 text-white/70'
+                          : 'border-gray-200 bg-white text-gray-700'
                       }`}
                       aria-pressed={isVeg === veg}
                     >
@@ -996,32 +1016,32 @@ function UploadScreen({ token, onClose, onPosted }) {
                       className={`flex w-full items-center gap-3 rounded-2xl border p-3 text-left transition ${
                         selected
                           ? 'border-[#FF6600] bg-[#FF6600]/10'
-                          : 'border-white/10 bg-white/5 hover:bg-white/10'
+                          : 'border-gray-200 bg-white hover:bg-orange-50'
                       }`}
                       aria-pressed={selected}
                     >
                       <img
                         src={food.image_url || undefined}
                         alt=""
-                        className="size-16 shrink-0 rounded-xl bg-white/10 object-cover"
+                        className="size-16 shrink-0 rounded-xl bg-gray-100 object-cover"
                       />
                       <span className="min-w-0 flex-1">
                         <span className="block truncate text-sm font-bold">{food.name}</span>
-                        <span className="mt-1 block text-sm font-extrabold text-orange-300">
+                        <span className="mt-1 block text-sm font-extrabold text-[#FF6600]">
                           ₹{food.price}
                         </span>
                         <span className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold ${
-                            foodIsVegetarian(food.is_veg) ? 'bg-emerald-500/20 text-emerald-200' : 'bg-red-500/20 text-red-200'
+                            foodIsVegetarian(food.is_veg) ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'
                         }`}>
                             {foodIsVegetarian(food.is_veg) ? 'VEG' : 'NON-VEG'}
                         </span>
                       </span>
-                      {selected && <span className="text-xs font-bold text-orange-300">Selected</span>}
+                      {selected && <span className="text-xs font-bold text-[#FF6600]">Selected</span>}
                     </button>
                   )
                 })}
                 {!loadingMenu && !filteredMenuItems.length && !isAddingDish && (
-                  <p className="rounded-2xl border border-white/10 bg-white/5 p-4 text-center text-sm text-white/55">
+                  <p className="rounded-2xl border border-gray-200 bg-gray-50 p-4 text-center text-sm text-gray-500">
                     No dishes match your search. You can add a new dish below.
                   </p>
                 )}
@@ -1034,16 +1054,16 @@ function UploadScreen({ token, onClose, onPosted }) {
                   }}
                   className={`flex w-full items-center justify-center gap-2 rounded-2xl border border-dashed py-4 text-sm font-bold ${
                     isAddingDish
-                      ? 'border-[#FF6600] bg-[#FF6600]/10 text-orange-200'
-                      : 'border-white/20 text-white/75'
+                      ? 'border-[#FF6600] bg-orange-50 text-[#FF6600]'
+                      : 'border-gray-300 text-gray-700'
                   }`}
                 >
                   <Plus size={17} />
                   Add New Dish
                 </button>
                 {isAddingDish && (
-                  <div className="space-y-3 rounded-2xl border border-white/10 bg-white/5 p-4">
-                    <label className="block text-xs font-semibold text-white/75">
+                  <div className="space-y-3 rounded-2xl border border-gray-200 bg-gray-50 p-4">
+                    <label className="block text-xs font-semibold text-gray-700">
                       New dish name
                       <input
                         value={newDishName}
@@ -1052,10 +1072,10 @@ function UploadScreen({ token, onClose, onPosted }) {
                           setTitle(event.target.value)
                         }}
                         placeholder="Dish name"
-                        className="mt-1.5 w-full rounded-xl border border-white/15 bg-black/20 px-3 py-3 text-sm text-white outline-none placeholder:text-white/40 focus:border-orange-400"
+                        className="mt-1.5 w-full rounded-xl border border-gray-200 bg-white px-3 py-3 text-sm text-[#1F2937] outline-none placeholder:text-gray-400 focus:border-[#FF6600]"
                       />
                     </label>
-                    <label className="block text-xs font-semibold text-white/75">
+                    <label className="block text-xs font-semibold text-gray-700">
                       Price (₹)
                       <input
                         type="number"
@@ -1065,11 +1085,11 @@ function UploadScreen({ token, onClose, onPosted }) {
                         value={newPrice}
                         onChange={(event) => setNewPrice(event.target.value)}
                         placeholder="Price"
-                        className="mt-1.5 w-full rounded-xl border border-white/15 bg-black/20 px-3 py-3 text-sm text-white outline-none placeholder:text-white/40 focus:border-orange-400"
+                        className="mt-1.5 w-full rounded-xl border border-gray-200 bg-white px-3 py-3 text-sm text-[#1F2937] outline-none placeholder:text-gray-400 focus:border-[#FF6600]"
                       />
                     </label>
                     <fieldset>
-                      <legend className="mb-2 text-xs font-semibold text-white/75">Food type</legend>
+                      <legend className="mb-2 text-xs font-semibold text-gray-700">Food type</legend>
                       <div className="grid grid-cols-2 gap-2">
                         {[true, false].map((veg) => (
                           <button
@@ -1081,7 +1101,7 @@ function UploadScreen({ token, onClose, onPosted }) {
                                 ? veg
                                   ? 'border-emerald-400 bg-emerald-500/20 text-emerald-100'
                                   : 'border-red-400 bg-red-500/20 text-red-100'
-                                : 'border-white/15 bg-white/5 text-white/70'
+                                : 'border-gray-200 bg-white text-gray-700'
                             }`}
                             aria-pressed={isVeg === veg}
                           >
@@ -1095,7 +1115,7 @@ function UploadScreen({ token, onClose, onPosted }) {
                 )}
               </div>
               {error && (
-                <p role="alert" className="mb-3 rounded-xl bg-red-500/10 px-3 py-2 text-sm text-red-200">
+                <p role="alert" className="mb-3 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">
                   {error}
                 </p>
               )}
@@ -1113,28 +1133,26 @@ function UploadScreen({ token, onClose, onPosted }) {
           {wizardStep === 'details' && (
             <section className="min-h-0 flex-1 overflow-y-auto px-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-4">
               <form onSubmit={postBite} className="space-y-4">
-                <div className="overflow-hidden rounded-2xl border border-white/10 bg-white/5">
+                <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
                   <video
                     src={previewUrl || undefined}
-                    className="h-48 w-full bg-black object-cover"
+                    className="h-48 w-full bg-gray-100 object-cover"
                     poster={previewUrl ? undefined : ''}
                     controls
-                    autoPlay
-                    loop
                     playsInline
                     muted
-                    preload="auto"
+                    preload="metadata"
                   />
                   <div className="flex items-center justify-between gap-3 px-3 py-2.5">
-                    <span className="truncate text-xs font-semibold text-white/70">
+                    <span className="truncate text-xs font-semibold text-gray-600">
                       {selectedRestaurant?.name} · {isAddingDish ? newDishName : selectedFood?.name}
                     </span>
-                    <span className="shrink-0 rounded-full bg-orange-500/15 px-2.5 py-1 text-[10px] font-bold text-orange-200">
+                    <span className="shrink-0 rounded-full bg-orange-50 px-2.5 py-1 text-[10px] font-bold text-orange-700">
                       {file?.name || 'Video preview'}
                     </span>
                   </div>
                 </div>
-                <label className="block text-xs font-semibold text-white/75">
+                <label className="block text-xs font-semibold text-gray-700">
                   Title
                   <input
                     required
@@ -1142,10 +1160,10 @@ function UploadScreen({ token, onClose, onPosted }) {
                     onChange={(event) => setTitle(event.target.value)}
                     maxLength={25}
                     placeholder="Give your Bite a title"
-                    className="mt-1.5 w-full rounded-xl border border-white/15 bg-white/5 px-3.5 py-3 text-sm text-white outline-none placeholder:text-white/40 focus:border-[#FF6600]"
+                    className="mt-1.5 w-full rounded-xl border border-gray-200 bg-white px-3.5 py-3 text-sm text-[#1F2937] outline-none placeholder:text-gray-400 focus:border-[#FF6600]"
                   />
                 </label>
-                <label className="block text-xs font-semibold text-white/75">
+                <label className="block text-xs font-semibold text-gray-700">
                   Caption / Description & Hashtags
                   <textarea
                     rows={4}
@@ -1153,21 +1171,21 @@ function UploadScreen({ token, onClose, onPosted }) {
                     onChange={(event) => setCaption(event.target.value)}
                     maxLength={50}
                     placeholder="Tell everyone about this Bite #food"
-                    className="mt-1.5 w-full resize-none rounded-xl border border-white/15 bg-white/5 px-3.5 py-3 text-sm text-white outline-none placeholder:text-white/40 focus:border-[#FF6600]"
+                    className="mt-1.5 w-full resize-none rounded-xl border border-gray-200 bg-white px-3.5 py-3 text-sm text-[#1F2937] outline-none placeholder:text-gray-400 focus:border-[#FF6600]"
                   />
                 </label>
                 {error && (
-                  <p role="alert" className="rounded-xl bg-red-500/10 px-3 py-2 text-sm text-red-200">
+                  <p role="alert" className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">
                     {error}
                   </p>
                 )}
                 {uploading && (
-                  <div className="rounded-xl border border-white/10 bg-white/5 p-3">
-                    <div className="mb-2 flex justify-between text-xs text-white/70">
+                  <div className="rounded-xl border border-gray-200 bg-gray-50 p-3">
+                    <div className="mb-2 flex justify-between text-xs text-gray-600">
                       <span>Publishing your Bite…</span>
                       <span>{progress}%</span>
                     </div>
-                    <div className="h-2 overflow-hidden rounded-full bg-white/15">
+                    <div className="h-2 overflow-hidden rounded-full bg-gray-200">
                       <div
                         className="h-full bg-[#FF6600] transition-[width]"
                         style={{ width: `${progress}%` }}
