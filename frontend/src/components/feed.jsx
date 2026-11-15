@@ -12,12 +12,15 @@ import {
   EyeOff,
   Plus,
   Minus,
+  Volume2,
+  VolumeX,
 } from 'lucide-react'
 import UploadScreen from './UploadScreen.jsx'
 import Home from './Home.jsx'
 import Profile from './Profile.jsx'
 import Settings from './Settings.jsx'
 import { API_BASE_URL } from '../api.js'
+import { getDeliveryEtaMinutes } from '../utils/eta.js'
 
 const FEED_URL = `${API_BASE_URL}/feed`
 
@@ -38,24 +41,15 @@ async function requestInteraction(videoId, action, token, query = '') {
     })
   } catch (requestError) {
     if (requestError.name === 'AbortError') throw requestError
-    throw new Error(
-      `Could not reach the Biteflow API at ${API_BASE_URL}. Check your connection and server CORS settings.`,
-      { cause: requestError },
-    )
+    throw new Error("Couldn't complete that right now. Please try again.", {
+      cause: requestError,
+    })
   }
 
   if (!response.ok) {
     const body = await response.text()
     console.error(`Biteflow ${action} request failed: HTTP ${response.status}`, body)
-    let data
-    try {
-      data = JSON.parse(body)
-    } catch {
-      data = { detail: body }
-    }
-    const error = new Error(
-      data.detail || data.error || `Could not ${action} this Bite (${response.status}).`,
-    )
+    const error = new Error("Couldn't complete that right now. Please try again.")
     error.status = response.status
     throw error
   }
@@ -63,13 +57,13 @@ async function requestInteraction(videoId, action, token, query = '') {
   return response
 }
 
-function Reel({ item, index, onRequireAuth, onVisible, onOrder }) {
+function Reel({ item, index, onRequireAuth, onVisible, onOrder, onDishOpen }) {
   const sectionRef = useRef(null)
   const videoRef = useRef(null)
   const likeIconRef = useRef(null)
   const userPausedRef = useRef(false)
   const tapTimeoutRef = useRef(null)
-  const [isMuted, setIsMuted] = useState(false)
+  const [isMuted, setIsMuted] = useState(true)
   const [isLiked, setIsLiked] = useState(false)
   const [isSaved, setIsSaved] = useState(false)
   const [isCommentOpen, setIsCommentOpen] = useState(false)
@@ -104,6 +98,15 @@ function Reel({ item, index, onRequireAuth, onVisible, onOrder }) {
 
   useEffect(() => () => clearTimeout(tapTimeoutRef.current), [])
 
+  useEffect(() => {
+    if (!interactionError && !shareError) return undefined
+    const timeoutId = window.setTimeout(() => {
+      setInteractionError('')
+      setShareError('')
+    }, 2800)
+    return () => window.clearTimeout(timeoutId)
+  }, [interactionError, shareError])
+
   const food = item.food_item
   const restaurantName =
     food?.restaurants?.name ??
@@ -115,7 +118,9 @@ function Reel({ item, index, onRequireAuth, onVisible, onOrder }) {
   const price = food?.price
   const likeCount = (item.total_likes ?? item.likes ?? 0) + (isLiked ? 1 : 0)
   const rating = food?.rating || '4.5'
-  const prepTime = food?.prep_time || 48
+  const eta = getDeliveryEtaMinutes(
+    food?.restaurants ?? item.restaurant,
+  )
   const audioName = item.audio_name || 'music apna - apna.........'
 
   const togglePlayback = () => {
@@ -172,7 +177,7 @@ function Reel({ item, index, onRequireAuth, onVisible, onOrder }) {
         }
       },
       onError: (error) => {
-        setInteractionError(error.message || 'Unable to complete this action.')
+        setInteractionError("Couldn't complete that right now. Please try again.")
         console.error(`Unable to ${type} reel`, error)
       },
     })
@@ -241,7 +246,7 @@ function Reel({ item, index, onRequireAuth, onVisible, onOrder }) {
     } catch (error) {
       if (error.name !== 'AbortError') {
         console.error('Unable to share reel', error)
-        setShareError(error.message || 'Unable to share this reel.')
+        setShareError("Couldn't complete that right now. Please try again.")
       }
     }
   }
@@ -262,12 +267,27 @@ function Reel({ item, index, onRequireAuth, onVisible, onOrder }) {
         loop
         muted={isMuted}
         playsInline
+        preload="auto"
         onClick={handleVideoTap}
         aria-label={item.title || dishName || 'Reel video'}
       />
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/10 via-transparent to-black/35" />
 
-      <header className="relative z-20 mx-3 mt-3 flex items-center justify-between rounded-2xl border border-white/25 bg-black/30 px-2.5 py-1.5 text-white shadow-lg backdrop-blur-md">
+      <button
+        type="button"
+        onClick={() => setIsMuted((muted) => !muted)}
+        className="absolute right-3 top-3 z-20 grid size-10 place-items-center rounded-full border border-white/25 bg-black/35 text-white shadow-lg backdrop-blur-md"
+        aria-label={isMuted ? 'Unmute video' : 'Mute video'}
+      >
+        {isMuted ? <VolumeX size={20} /> : <Volume2 size={20} />}
+      </button>
+
+      <button
+        type="button"
+        onClick={() => onDishOpen(item)}
+        className="relative z-20 mx-3 mt-3 flex items-center justify-between rounded-2xl border border-white/25 bg-black/30 px-2.5 py-1.5 pr-14 text-left text-white shadow-lg backdrop-blur-md"
+        aria-label={`View ${dishName || item.title} dish details`}
+      >
         <div className="flex min-w-0 items-center gap-3">
           <img
             src={food?.image_url || undefined}
@@ -290,10 +310,10 @@ function Reel({ item, index, onRequireAuth, onVisible, onOrder }) {
             {rating} ★
           </span>
           <span className="rounded-md bg-[#FDBA74] px-1.5 py-0.5 text-[11px] font-extrabold text-[#431407]">
-            {prepTime} Mins
+            {eta} Mins
           </span>
         </div>
-      </header>
+      </button>
 
       <div className="mt-auto relative z-20 flex w-full flex-col">
         <div className="max-w-[75%] px-3.5 text-white drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">
@@ -434,7 +454,7 @@ function Reel({ item, index, onRequireAuth, onVisible, onOrder }) {
       )}
 
       {(shareError || interactionError) && (
-        <p role="alert" className="absolute bottom-20 left-3 right-16 z-30 rounded-lg bg-black/80 p-2 text-xs text-white">
+        <p role="status" className="absolute bottom-20 left-3 right-16 z-30 rounded-full bg-black/80 px-3 py-2 text-center text-xs text-white">
           {interactionError || shareError}
         </p>
       )}
@@ -511,7 +531,7 @@ function AuthModal({ onClose, onAuthenticated }) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/10 backdrop-blur-[1px]"
       onClick={onClose}
     >
       <section
@@ -531,7 +551,7 @@ function AuthModal({ onClose, onAuthenticated }) {
           <button
             type="button"
             onClick={onClose}
-            className="grid size-9 place-items-center rounded-full bg-white/10"
+            className="grid size-9 place-items-center rounded-full bg-white/70"
             aria-label="Close login"
           >
             <X size={20} />
@@ -671,6 +691,10 @@ function OrderSheet({ reel, onClose, onRequireAuth, onSuccess }) {
   const price = Number(food?.price ?? 0)
   const restaurantName =
     food?.restaurants?.name ?? reel?.restaurant?.name ?? reel?.restaurant_name ?? ''
+  const eta = getDeliveryEtaMinutes(food?.restaurants ?? reel?.restaurant)
+  const vegValue = String(food?.is_veg ?? '').toLowerCase()
+  const isVeg = ['true', '1', 'yes', 'veg', 'vegetarian'].includes(vegValue)
+  const isNonVeg = ['false', '0', 'no', 'non-veg', 'nonveg'].includes(vegValue)
 
   const placeOrder = () => {
     setSubmitting(true)
@@ -693,26 +717,14 @@ function OrderSheet({ reel, onClose, onRequireAuth, onSuccess }) {
               }),
             })
           } catch (requestError) {
-            throw new Error(
-              `Could not reach the Biteflow API at ${API_BASE_URL}. Check your connection and server CORS settings.`,
-              { cause: requestError },
-            )
+            throw new Error("Couldn't complete that right now. Please try again.", {
+              cause: requestError,
+            })
           }
           const body = await response.text()
-          let data
-          try {
-            data = body ? JSON.parse(body) : {}
-          } catch {
-            data = { detail: body }
-          }
           if (!response.ok) {
             console.error(`Biteflow order request failed: HTTP ${response.status}`, body)
-            const detail = Array.isArray(data.detail)
-              ? data.detail.map((entry) => entry.msg).join(' ')
-              : data.detail || data.error
-            const orderError = new Error(
-              detail || `Order failed (${response.status}).`,
-            )
+            const orderError = new Error("Couldn't complete that right now. Please try again.")
             orderError.status = response.status
             throw orderError
           }
@@ -724,58 +736,74 @@ function OrderSheet({ reel, onClose, onRequireAuth, onSuccess }) {
       },
       onError: (requestError) => {
         setSubmitting(false)
-        setError(requestError.message || 'Unable to place this order.')
+        setError("Couldn't complete that right now. Please try again.")
+        console.error('Unable to place Bite order', requestError)
       },
     })
   }
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/10 backdrop-blur-[1px]"
       onClick={onClose}
     >
       <section
-        className="w-full max-w-md rounded-t-3xl border border-white/20 bg-neutral-950/95 px-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-5 text-white shadow-2xl shadow-black/50"
+        className="h-[55vh] w-full max-w-md overflow-y-auto rounded-t-3xl border-t border-white/60 bg-white/80 px-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-3 text-[#1F2937] shadow-2xl backdrop-blur-2xl"
         role="dialog"
         aria-modal="true"
         aria-label="Order dish"
         onClick={(event) => event.stopPropagation()}
       >
+        <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-neutral-400/50" />
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-xl font-extrabold">Your order</h2>
+          <h2 className="text-xl font-extrabold">Dish details</h2>
           <button
             type="button"
             onClick={onClose}
-            className="grid size-9 place-items-center rounded-full bg-white/10"
+            className="grid size-9 place-items-center rounded-full bg-white/70"
             aria-label="Close order"
           >
             <X size={20} />
           </button>
         </div>
 
-        <div className="flex items-center gap-3 rounded-2xl bg-white/5 p-3">
+        <div className="flex items-center gap-3 rounded-2xl border border-white/50 bg-white/55 p-3">
           <img
             src={food?.image_url || reel.thumbnail_url || undefined}
             alt=""
-            className="size-16 shrink-0 rounded-xl bg-white/10 object-cover"
+            className="size-20 shrink-0 rounded-xl bg-white/70 object-cover"
           />
           <div className="min-w-0 flex-1">
             <p className="truncate font-bold">{food?.name || reel.title}</p>
-            <p className="mt-0.5 truncate text-xs text-white/60">
+            <p className="mt-0.5 truncate text-xs text-neutral-500">
               @{restaurantName.replace(/\s+/g, '_')}
             </p>
-            <p className="mt-1 text-sm font-bold text-orange-300">₹{price}</p>
+            <p className="mt-1 text-sm font-bold text-[#FF6600]">₹{price}</p>
           </div>
         </div>
+        <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+          <span className={`rounded-full px-2.5 py-1 font-bold ${
+            isVeg ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'
+          }`}>{isVeg ? 'Veg' : isNonVeg ? 'Non-Veg' : 'Veg status unavailable'}</span>
+          <span className="rounded-full bg-amber-100 px-2.5 py-1 font-bold text-amber-900">
+            {food?.rating || '4.5'} ★
+          </span>
+          <span className="rounded-full bg-orange-100 px-2.5 py-1 font-bold text-orange-900">
+            {eta} Mins
+          </span>
+        </div>
+        {reel.description && (
+          <p className="mt-3 text-sm leading-relaxed text-neutral-600">{reel.description}</p>
+        )}
 
         <div className="mt-4 flex items-center justify-between">
-          <span className="text-sm font-semibold text-white/75">Quantity</span>
-          <div className="flex items-center gap-4 rounded-full bg-white/10 p-1">
+          <span className="text-sm font-semibold text-neutral-700">Quantity</span>
+          <div className="flex items-center gap-4 rounded-full bg-white/70 p-1">
             <button
               type="button"
               onClick={() => setQuantity((current) => Math.max(1, current - 1))}
               disabled={quantity <= 1}
-              className="grid size-9 place-items-center rounded-full text-white disabled:opacity-40"
+              className="grid size-9 place-items-center rounded-full text-neutral-700 disabled:opacity-40"
               aria-label="Decrease quantity"
             >
               <Minus size={17} />
@@ -793,19 +821,19 @@ function OrderSheet({ reel, onClose, onRequireAuth, onSuccess }) {
           </div>
         </div>
 
-        <label className="mt-4 block text-sm font-semibold text-white/75">
+        <label className="mt-4 block text-sm font-semibold text-neutral-700">
           Delivery location / note
           <textarea
             rows={2}
             value={deliveryNote}
             onChange={(event) => setDeliveryNote(event.target.value)}
             placeholder="Hostel / Gate / Special instructions..."
-            className="mt-2 w-full resize-none rounded-xl border border-white/15 bg-white/5 px-3.5 py-3 text-sm text-white outline-none placeholder:text-white/40 focus:border-[#FF6600]"
+            className="mt-2 w-full resize-none rounded-xl border border-white/60 bg-white/65 px-3.5 py-3 text-sm text-neutral-800 outline-none placeholder:text-neutral-400 focus:border-[#FF6600]"
           />
         </label>
 
         {error && (
-          <p role="alert" className="mt-3 rounded-lg bg-red-500/10 px-3 py-2 text-sm text-red-300">
+          <p role="status" className="fixed bottom-6 left-1/2 z-[60] w-[calc(100%-2rem)] max-w-md -translate-x-1/2 rounded-full bg-neutral-900/95 px-4 py-3 text-center text-sm font-semibold text-white shadow-xl">
             {error}
           </p>
         )}
@@ -816,7 +844,7 @@ function OrderSheet({ reel, onClose, onRequireAuth, onSuccess }) {
           disabled={submitting || !reel.food_item_id && !food?.id}
           className="mt-4 w-full rounded-xl bg-[#FF6600] py-3.5 text-sm font-extrabold text-white disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {submitting ? 'Placing order…' : `Place Order • ₹${price * quantity}`}
+          {submitting ? 'Placing order…' : `Order Now • ₹${price * quantity}`}
         </button>
       </section>
     </div>
@@ -905,12 +933,7 @@ function Feed({ activeTab, onActiveTabChange, createRequest }) {
   }, [activeTab, onActiveTabChange, requireAuth])
 
   const openOrder = (reel) => {
-    requireAuth({
-      type: 'order',
-      reel,
-      run: () => setActiveOrderReel(reel),
-      onError: (actionError) => setPaginationError(actionError.message),
-    })
+    setActiveOrderReel(reel)
   }
 
   const closeUpload = () => {
@@ -1062,6 +1085,7 @@ function Feed({ activeTab, onActiveTabChange, createRequest }) {
                 onRequireAuth={requireAuth}
                 onVisible={onVisibleReel}
                 onOrder={openOrder}
+                onDishOpen={openOrder}
               />
             ))}
             {(loadingMore || paginationError) && (

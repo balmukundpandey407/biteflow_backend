@@ -99,11 +99,18 @@ function UploadScreen({ token, onClose, onPosted }) {
   const [uploading, setUploading] = useState(false)
   const [progress, setProgress] = useState(0)
   const [error, setError] = useState('')
+  const [publishToast, setPublishToast] = useState('')
   const maxDuration = durationPreset === 'music' && musicDuration
     ? musicDuration
     : Number(durationPreset)
   const activeFilter = VIDEO_FILTERS[filterIndex]
   const timelineProgress = Math.min((recordingDuration / maxDuration) * 100, 100)
+
+  useEffect(() => {
+    if (!publishToast) return undefined
+    const timeoutId = window.setTimeout(() => setPublishToast(''), 3000)
+    return () => window.clearTimeout(timeoutId)
+  }, [publishToast])
 
   useEffect(() => {
     maxRecordingDurationRef.current = maxDuration
@@ -529,11 +536,9 @@ function UploadScreen({ token, onClose, onPosted }) {
       })
     } catch (uploadError) {
       console.error('Unable to publish Bite', uploadError)
-      setError(
-        uploadError instanceof TypeError
-          ? 'Unable to publish right now. Please check your connection and try again.'
-          : uploadError.message || 'Unable to publish right now. Please try again.',
-      )
+      const message = "Couldn't publish your Bite right now. Please check your connection and try again."
+      setError(message)
+      setPublishToast(message)
     } finally {
       setUploading(false)
     }
@@ -1028,6 +1033,14 @@ function UploadScreen({ token, onClose, onPosted }) {
                     </label>
                   </div>
                 )}
+                {publishToast && (
+                  <div
+                    role="status"
+                    className="fixed bottom-6 left-1/2 z-[80] w-[calc(100%-2rem)] max-w-md -translate-x-1/2 rounded-full bg-neutral-900/95 px-4 py-3 text-center text-sm font-semibold text-white shadow-xl"
+                  >
+                    {publishToast}
+                  </div>
+                )}
               </div>
               {error && (
                 <p role="alert" className="mb-3 rounded-xl bg-red-500/10 px-3 py-2 text-sm text-red-200">
@@ -1054,8 +1067,11 @@ function UploadScreen({ token, onClose, onPosted }) {
                     className="h-48 w-full bg-black object-cover"
                     poster={previewUrl ? undefined : ''}
                     controls
+                    autoPlay
+                    loop
                     playsInline
                     muted
+                    preload="auto"
                   />
                   <div className="flex items-center justify-between gap-3 px-3 py-2.5">
                     <span className="truncate text-xs font-semibold text-white/70">

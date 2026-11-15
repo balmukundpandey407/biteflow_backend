@@ -7,6 +7,7 @@ import {
   Play,
   Plus,
   ShoppingBag,
+  X,
 } from 'lucide-react'
 import { API_BASE_URL } from '../api.js'
 const BITE_FILTERS = [
@@ -39,7 +40,9 @@ async function fetchJson(path, token, signal) {
     const detail = Array.isArray(data.detail)
       ? data.detail.map((entry) => entry.msg).join(' ')
       : data.detail || data.error
-    throw new Error(detail || `Request failed (${response.status}).`)
+    const error = new Error(detail || `Request failed (${response.status}).`)
+    error.status = response.status
+    throw error
   }
   return data
 }
@@ -59,8 +62,13 @@ function Profile({ token, onLogin, onCreate, onOpenSettings, reels, onOpenBites,
     saved: [],
     orders: [],
   })
-  const [loading, setLoading] = useState(true)
+  const [loadedToken, setLoadedToken] = useState(null)
+  const loading = Boolean(token) && loadedToken !== token
   const [error, setError] = useState('')
+  const [isEditOpen, setIsEditOpen] = useState(false)
+  const [editName, setEditName] = useState('')
+  const [editAvatar, setEditAvatar] = useState('')
+  const [savingProfile, setSavingProfile] = useState(false)
   const [preferences, setPreferences] = useState(() => {
     try {
       return JSON.parse(localStorage.getItem('biteflow_profile_preferences') || '{}')
@@ -89,7 +97,10 @@ function Profile({ token, onLogin, onCreate, onOpenSettings, reels, onOpenBites,
       try {
         const [userData, mineData, likedData, savedData, orderData] =
           await Promise.all([
-            fetchJson('/user/me', token, controller.signal),
+            fetchJson('/users/me', token, controller.signal).catch((requestError) => {
+              if (requestError.status !== 404) throw requestError
+              return fetchJson('/user/me', token, controller.signal)
+            }),
             fetchJson('/user/me/videos', token, controller.signal),
             fetchJson('/user/me/liked', token, controller.signal),
             fetchJson('/user/me/saved', token, controller.signal),
@@ -105,10 +116,10 @@ function Profile({ token, onLogin, onCreate, onOpenSettings, reels, onOpenBites,
         })
       } catch (requestError) {
         if (!controller.signal.aborted) {
-          setError(requestError.message || 'Unable to load your profile.')
+          console.error('Unable to load Biteflow profile', requestError)
         }
       } finally {
-        if (!controller.signal.aborted) setLoading(false)
+        if (!controller.signal.aborted) setLoadedToken(token)
       }
     }
 
@@ -143,6 +154,98 @@ function Profile({ token, onLogin, onCreate, onOpenSettings, reels, onOpenBites,
     onOrder(matchingReel)
   }
 
+  const openEditProfile = () => {
+    const user = profileData.user || {}
+    setEditName(
+      preferences.displayName ||
+        `${user.first_name || ''} ${user.last_name || ''}`.trim(),
+    )
+    setEditAvatar(preferences.avatar || user.avatar_url || '')
+    setError('')
+    setIsEditOpen(true)
+  }
+
+  const chooseAvatar = (event) => {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+    if (!file.type.startsWith('image/') || file.size > 2 * 1024 * 1024) {
+      setError('Choose an image smaller than 2 MB.')
+      return
+    }
+    const reader = new FileReader()
+    reader.onload = () => {
+      if (typeof reader.result === 'string') setEditAvatar(reader.result)
+    }
+    reader.onerror = () => setError('Could not read the selected image.')
+    reader.readAsDataURL(file)
+  }
+
+  const saveProfile = async (event) => {
+    event.preventDefault()
+    if (!token) return
+    const [firstName, ...lastName] = editName.trim().split(/\s+/)
+    if (!firstName) {
+      setError('Enter your name before saving.')
+      return
+    }
+    setSavingProfile(true)
+    setError('')
+    try {
+      let response = await fetch(`${API_BASE_URL}/users/me`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          first_name: firstName,
+          last_name: lastName.join(' ') || null,
+          avatar_url: editAvatar || null,
+        }),
+      })
+      if (response.status === 404) {
+        response = await fetch(`${API_BASE_URL}/user/me`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            first_name: firstName,
+            last_name: lastName.join(' ') || null,
+            avatar_url: editAvatar || null,
+          }),
+        })
+      }
+      if (!response.ok) {
+        throw new Error(
+          response.status === 404 || response.status === 405
+            ? 'Profile editing is not available on the server yet.'
+            : "Couldn't save your profile right now. Please try again.",
+        )
+      }
+      const data = await response.json().catch(() => ({}))
+      const updatedUser = data.user || data
+      setProfileData((current) => ({
+        ...current,
+        user: { ...current.user, ...updatedUser, first_name: firstName, last_name: lastName.join(' ') },
+      }))
+      const nextPreferences = {
+        ...preferences,
+        displayName: editName.trim(),
+        avatar: editAvatar,
+      }
+      localStorage.setItem('biteflow_profile_preferences', JSON.stringify(nextPreferences))
+      setPreferences(nextPreferences)
+      setIsEditOpen(false)
+    } catch (saveError) {
+      setError(saveError.message || "Couldn't save your profile right now. Please try again.")
+    } finally {
+      setSavingProfile(false)
+    }
+  }
+
   return (
     <main className="mx-auto min-h-[calc(100dvh-4rem)] w-full max-w-md bg-white pb-20 text-neutral-900">
       <header className="flex items-center justify-between border-b border-white/15 bg-[#FF6600]/90 px-4 py-3 text-white shadow-sm backdrop-blur-md">
@@ -158,28 +261,30 @@ function Profile({ token, onLogin, onCreate, onOpenSettings, reels, onOpenBites,
       </header>
 
       <section className="flex items-center gap-4 px-5 py-7">
-        {preferences.avatar ? (
-          <img
-            src={preferences.avatar}
-            alt=""
-            className="size-24 shrink-0 rounded-full border border-orange-500/20 object-cover"
-          />
-        ) : (
-          <span className="grid size-24 shrink-0 place-items-center rounded-full border border-orange-500/20 bg-white/85 text-[#FF6600] shadow-sm backdrop-blur-md">
-            <CircleUserRound size={66} strokeWidth={1.7} />
-          </span>
-        )}
+        <button type="button" onClick={openEditProfile} aria-label="Edit profile photo">
+          {preferences.avatar || profileData.user?.avatar_url ? (
+            <img
+              src={preferences.avatar || profileData.user.avatar_url}
+              alt=""
+              className="size-24 shrink-0 rounded-full border border-orange-500/20 object-cover"
+            />
+          ) : (
+            <span className="grid size-24 shrink-0 place-items-center rounded-full border border-orange-500/20 bg-white/85 text-[#FF6600] shadow-sm backdrop-blur-md">
+              <CircleUserRound size={66} strokeWidth={1.7} />
+            </span>
+          )}
+        </button>
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-center gap-2">
             <p className="truncate text-xl font-semibold">
               {preferences.displayName || (profileData.user
                 ? `${profileData.user.first_name || ''} ${profileData.user.last_name || ''}`.trim() ||
-                  'Biteflow Member'
-                : 'Biteflow Member')}
+                  'Your profile'
+                : loading ? 'Loading profile…' : 'Your profile')}
             </p>
             <button
               type="button"
-              onClick={onOpenSettings}
+              onClick={openEditProfile}
               aria-label="Edit profile"
               className="grid size-8 shrink-0 place-items-center rounded-full text-[#FF6600]"
             >
@@ -187,7 +292,8 @@ function Profile({ token, onLogin, onCreate, onOpenSettings, reels, onOpenBites,
             </button>
           </div>
           <p className="mt-1 text-sm text-neutral-500">
-            {token ? 'Your Biteflow profile' : 'Sign in to personalize your profile'}
+            {[profileData.user?.email, profileData.user?.phone].filter(Boolean).join(' · ') ||
+              (token ? 'Your Biteflow profile' : 'Sign in to personalize your profile')}
           </p>
           {!token && (
             <button
@@ -242,10 +348,6 @@ function Profile({ token, onLogin, onCreate, onOpenSettings, reels, onOpenBites,
         </div>
       ) : loading ? (
         <div className="mx-4 h-32 animate-pulse rounded-2xl border border-orange-500/20 bg-orange-50" />
-      ) : error ? (
-        <p role="alert" className="mx-4 rounded-2xl bg-red-50 px-4 py-5 text-sm text-red-700">
-          {error}
-        </p>
       ) : activeSection === 'bites' ? (
         <>
           <div className="mb-4 flex gap-2 overflow-x-auto px-4">
@@ -296,7 +398,7 @@ function Profile({ token, onLogin, onCreate, onOpenSettings, reels, onOpenBites,
           ) : (
             <p className="px-5 py-8 text-center text-sm text-neutral-500">
               {activeBiteFilter === 'mine'
-                ? 'Your uploaded Bites will appear here.'
+                ? 'Nothing to show here yet — post your first Bite!'
                 : activeBiteFilter === 'liked'
                   ? 'You have not liked any Bites yet.'
                   : 'You have not saved any Bites yet.'}
@@ -352,12 +454,69 @@ function Profile({ token, onLogin, onCreate, onOpenSettings, reels, onOpenBites,
             </div>
           ) : (
             <p className="px-5 py-8 text-center text-sm text-neutral-500">
-              Your order history will appear here.
+              No orders yet
             </p>
           )}
         </section>
       )}
 
+      {isEditOpen && (
+        <div
+          className="fixed inset-0 z-[80] flex items-end justify-center bg-black/50 p-3 backdrop-blur-sm sm:items-center"
+          onClick={() => setIsEditOpen(false)}
+        >
+          <form
+            onSubmit={saveProfile}
+            onClick={(event) => event.stopPropagation()}
+            className="w-full max-w-md rounded-3xl border border-white/60 bg-white/90 p-5 text-neutral-900 shadow-2xl backdrop-blur-2xl"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Edit profile"
+          >
+            <div className="mb-5 flex items-center justify-between">
+              <h2 className="text-xl font-extrabold">Edit profile</h2>
+              <button
+                type="button"
+                onClick={() => setIsEditOpen(false)}
+                className="grid size-9 place-items-center rounded-full bg-orange-50"
+                aria-label="Close edit profile"
+              >
+                <X size={19} />
+              </button>
+            </div>
+            <div className="mb-4 flex items-center gap-4">
+              {editAvatar ? (
+                <img src={editAvatar} alt="" className="size-20 rounded-full object-cover" />
+              ) : (
+                <span className="grid size-20 place-items-center rounded-full bg-orange-50 text-orange-600">
+                  <CircleUserRound size={42} />
+                </span>
+              )}
+              <label className="cursor-pointer rounded-xl border border-orange-500/20 bg-white px-3 py-2 text-sm font-bold text-orange-700">
+                Change photo
+                <input type="file" accept="image/*" className="sr-only" onChange={chooseAvatar} />
+              </label>
+            </div>
+            <label className="block text-sm font-semibold">
+              Name
+              <input
+                value={editName}
+                onChange={(event) => setEditName(event.target.value)}
+                className="mt-1.5 w-full rounded-xl border border-orange-500/20 bg-white px-3.5 py-3 outline-none focus:border-orange-500"
+                autoComplete="name"
+              />
+            </label>
+            {error && <p role="alert" className="mt-3 text-sm text-red-700">{error}</p>}
+            <button
+              type="submit"
+              disabled={savingProfile}
+              className="mt-5 w-full rounded-xl bg-[#FF6600] py-3.5 text-sm font-extrabold text-white disabled:opacity-60"
+            >
+              {savingProfile ? 'Saving…' : 'Save changes'}
+            </button>
+          </form>
+        </div>
+      )}
     </main>
   )
 }

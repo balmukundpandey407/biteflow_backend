@@ -203,6 +203,7 @@ function Home({ reels, loading, error, token, onOpenFeed, onOrder }) {
       return
     }
     localStorage.setItem(LOCATION_KEY, cleanLocation)
+    if (!wasDetected) localStorage.removeItem('biteflow_coordinates')
     setLocation(cleanLocation)
     setLocationDraft(cleanLocation)
     setLocationError('')
@@ -266,6 +267,13 @@ function Home({ reels, loading, error, token, onOpenFeed, onOrder }) {
           if (!resolvedAddress) {
             throw new Error('No readable address was found for this location.')
           }
+          localStorage.setItem(
+            'biteflow_coordinates',
+            JSON.stringify({
+              latitude: coords.latitude,
+              longitude: coords.longitude,
+            }),
+          )
           setLocationDraft(resolvedAddress)
           chooseLocation(resolvedAddress, true)
         } catch (lookupError) {
@@ -322,13 +330,36 @@ function Home({ reels, loading, error, token, onOpenFeed, onOrder }) {
   return (
     <main className="mx-auto min-h-[100dvh] w-full max-w-md bg-white pb-20 text-neutral-900">
       <header className="relative z-30 border-b border-white/15 bg-[#FF6600]/90 px-3 py-2 text-white shadow-sm backdrop-blur-md">
-        <div className="mb-2 flex items-center justify-between">
+        <div className="mb-2 flex min-h-9 items-center justify-between gap-2">
           <span className="text-lg font-extrabold tracking-tight">Biteflow</span>
-          <div className="flex min-w-0 items-center gap-2">
-            {isLocationExpanded && location && (
-              <span className="max-w-[200px] truncate rounded-full border border-white/20 bg-black/30 px-2.5 py-1.5 text-xs font-semibold backdrop-blur-md">
-                {location}
+          <div className="flex shrink-0 items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setFoodMode((mode) => (mode === 'veg' ? 'non-veg' : 'veg'))}
+              className={`relative flex h-7 w-[82px] shrink-0 items-center rounded-full transition-colors duration-300 ${
+                foodMode === 'veg' ? 'bg-[#16A34A]' : 'bg-[#DC2626]'
+              }`}
+              aria-label={`Food filter: ${foodMode === 'veg' ? 'Veg' : 'Non-Veg'}, switch`}
+              aria-pressed={foodMode === 'veg'}
+            >
+              <span className={`absolute top-1 grid size-5 place-items-center rounded-full bg-white shadow-md transition-transform duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)] ${
+                foodMode === 'veg' ? 'translate-x-[58px]' : 'translate-x-1'
+              }`} />
+              <span className={`w-full px-2 text-[10px] font-bold text-white ${
+                foodMode === 'veg' ? 'pr-6 text-left' : 'pl-6 text-right'
+              }`}>
+                {foodMode === 'veg' ? 'Veg' : 'Non-Veg'}
               </span>
+            </button>
+            {isLocationExpanded && location && (
+              <button
+                type="button"
+                onClick={() => setIsLocationPromptOpen(true)}
+                className="max-w-[min(34vw,150px)] truncate rounded-full border border-white/20 bg-black/20 px-2.5 py-1.5 text-xs font-semibold text-white backdrop-blur-md"
+                aria-label={`Edit delivery location: ${location}`}
+              >
+                {location}
+              </button>
             )}
             <button
               type="button"
@@ -338,14 +369,14 @@ function Home({ reels, loading, error, token, onOpenFeed, onOrder }) {
                 setIsEditingLocation(!location)
                 setIsLocationPromptOpen(true)
               }}
-              className="grid size-9 shrink-0 place-items-center rounded-full border border-white/20 bg-white/20 text-white"
+              className="grid size-9 shrink-0 place-items-center rounded-full border border-white/20 bg-black/20 text-white backdrop-blur-md transition-colors"
               aria-label={location ? `View delivery location: ${location}` : 'Set delivery location'}
             >
               <MapPin size={18} />
             </button>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex w-full items-center">
           <div className="relative min-w-0 flex-1" ref={searchWrapperRef}>
             <label className="flex items-center gap-2 rounded-full border border-orange-500/20 bg-white/85 px-4 py-2.5 text-neutral-800 shadow-sm backdrop-blur-md">
               <input
@@ -431,19 +462,6 @@ function Home({ reels, loading, error, token, onOpenFeed, onOrder }) {
             )}
           </div>
 
-          <button
-            type="button"
-            onClick={() => setFoodMode((mode) => (mode === 'veg' ? 'non-veg' : 'veg'))}
-            className={`flex h-7 w-[72px] shrink-0 items-center justify-center rounded-full px-1 text-[11px] font-semibold text-white transition-colors duration-300 ${
-              foodMode === 'veg' ? 'bg-emerald-500' : 'bg-red-600'
-            }`}
-            aria-label={`Food filter: ${foodMode === 'veg' ? 'Veg' : 'Non-Veg'}, switch`}
-            aria-pressed={foodMode === 'veg'}
-          >
-            <span className="transition-all duration-300">
-              {foodMode === 'veg' ? 'Veg' : 'Non-Veg'}
-            </span>
-          </button>
         </div>
       </header>
 
@@ -478,9 +496,16 @@ function Home({ reels, loading, error, token, onOpenFeed, onOrder }) {
                     onClick={() => onOpenFeed(reel)}
                     className="relative h-full w-full min-w-full snap-center overflow-hidden bg-[#1E1E24] text-left text-white"
                   >
-                    {reel.thumbnail_url && (
-                      <img src={reel.thumbnail_url} alt="" className="absolute inset-0 h-full w-full object-cover" />
-                    )}
+                    <video
+                      src={reel.video_url}
+                      poster={reel.thumbnail_url || undefined}
+                      muted
+                      loop
+                      autoPlay
+                      playsInline
+                      preload="metadata"
+                      className="absolute inset-0 h-full w-full object-cover"
+                    />
                     <span className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/10 to-transparent" />
                     <span className="absolute inset-x-4 bottom-4">
                       <span className="block text-xs font-bold text-orange-200">Featured Bite</span>
@@ -569,9 +594,16 @@ function Home({ reels, loading, error, token, onOpenFeed, onOrder }) {
               onClick={() => onOpenFeed(reel)}
               className="relative aspect-[9/16] w-36 shrink-0 overflow-hidden rounded-2xl border border-white/15 bg-[#1E1E24] text-left text-white"
             >
-              {reel.thumbnail_url && (
-                <img src={reel.thumbnail_url} alt="" className="absolute inset-0 h-full w-full object-cover" />
-              )}
+              <video
+                src={reel.video_url}
+                poster={reel.thumbnail_url || undefined}
+                muted
+                loop
+                autoPlay
+                playsInline
+                preload="metadata"
+                className="absolute inset-0 h-full w-full object-cover"
+              />
               <span className="absolute inset-0 bg-gradient-to-t from-black/85 via-transparent to-transparent" />
               <span className="absolute inset-x-3 bottom-3">
                 <span className="mb-1 block truncate text-[11px] font-semibold text-orange-200">
@@ -651,7 +683,7 @@ function Home({ reels, loading, error, token, onOpenFeed, onOrder }) {
             aria-modal="true"
             aria-labelledby="location-title"
             onClick={(event) => event.stopPropagation()}
-            className="w-full max-w-md rounded-3xl border border-orange-500/15 bg-white p-5 text-neutral-900 shadow-2xl"
+            className="w-full max-w-md rounded-3xl border border-white/60 bg-white/80 p-5 text-neutral-900 shadow-2xl backdrop-blur-2xl"
           >
             <div className="mb-4 flex items-start justify-between">
               <div>

@@ -21,6 +21,7 @@ function getFood(entry) {
 function getPopularity(entry) {
   const video = entry?.reel ?? entry
   return (
+    Number(video?.feed_score ?? 0) +
     Number(video?.total_likes ?? video?.likes ?? 0) * 3 +
     Number(video?.total_views ?? video?.views ?? 0) +
     Number(video?.total_comments ?? video?.comments ?? 0) * 2

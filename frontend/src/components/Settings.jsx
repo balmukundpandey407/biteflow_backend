@@ -174,12 +174,20 @@ function Settings({ token, onClose, onLogout }) {
                   Display name
                   <span className="mt-1 flex items-center gap-2 rounded-xl border border-orange-500/20 bg-white px-3 py-2.5">
                     <input
+                      id="settings-display-name"
                       value={displayName || user?.first_name || ''}
                       onChange={(event) => setDisplayName(event.target.value)}
                       placeholder="Your name"
                       className="min-w-0 flex-1 bg-transparent text-sm outline-none"
                     />
-                    <Pencil size={16} className="text-orange-600" />
+                    <button
+                      type="button"
+                      onClick={() => document.getElementById('settings-display-name')?.focus()}
+                      className="text-orange-600"
+                      aria-label="Edit display name"
+                    >
+                      <Pencil size={16} />
+                    </button>
                   </span>
                 </label>
                 <p className="text-xs text-neutral-500">
