@@ -1,9 +1,11 @@
+from dataclasses import Field
+
 from pydantic import BaseModel
 from typing import Optional
 
 class video_in (BaseModel):
-    title: Optional[str] = None
-    description: Optional[str] = None
+    title: Optional[str] =Field(None, max_length=25)
+    description: Optional[str] = Field(None, max_length=50)
     video_url: str
     thumbnail_url: Optional[str] = None
     restaurant_id: Optional[str] = None

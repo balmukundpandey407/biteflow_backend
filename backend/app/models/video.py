@@ -7,8 +7,8 @@ class Video(Base):
     __tablename__ = "videos"
 
     id = Column(String, primary_key=True)
-    title = Column(String, nullable=False)
-    description = Column(String, nullable=True)
+    title = Column(String, nullable=True, max_length=25)
+    description = Column(String, nullable=True, max_length=50)
     video_url = Column(String, nullable=False)
     thumbnail_url = Column(String, nullable=True)
     feed_score = Column(Float, nullable=False)
