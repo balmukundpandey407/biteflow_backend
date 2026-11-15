@@ -31,12 +31,13 @@ function getAuthHeaders(token) {
   }
 }
 
-async function requestInteraction(videoId, action, token, query = '') {
-  const url = `${API_BASE_URL}/video/${encodeURIComponent(videoId)}/${action}${query}`
+async function requestInteraction(videoId, action, token, query = '', method = 'GET') {
+  const basePath = method === 'DELETE' ? 'videos' : 'video'
+  const url = `${API_BASE_URL}/${basePath}/${encodeURIComponent(videoId)}/${action}${query}`
   let response
   try {
     response = await fetch(url, {
-      method: 'GET',
+      method,
       headers: getAuthHeaders(token),
     })
   } catch (requestError) {
@@ -64,10 +65,14 @@ function Reel({ item, index, onRequireAuth, onVisible, onOrder, onDishOpen }) {
   const userPausedRef = useRef(false)
   const tapTimeoutRef = useRef(null)
   const [isMuted, setIsMuted] = useState(true)
-  const [isLiked, setIsLiked] = useState(false)
-  const [isSaved, setIsSaved] = useState(false)
+  const [isLiked, setIsLiked] = useState(Boolean(item.is_liked))
+  const [isSaved, setIsSaved] = useState(Boolean(item.is_saved))
   const [isCommentOpen, setIsCommentOpen] = useState(false)
   const [commentDraft, setCommentDraft] = useState('')
+  const [comments, setComments] = useState([])
+  const [commentsLoading, setCommentsLoading] = useState(false)
+  const [commentsError, setCommentsError] = useState('')
+  const [likeCount, setLikeCount] = useState(item.total_likes ?? item.likes ?? 0)
   const [commentCount, setCommentCount] = useState(item.total_comments ?? 0)
   const [interactionError, setInteractionError] = useState('')
   const [busyAction, setBusyAction] = useState('')
@@ -107,6 +112,39 @@ function Reel({ item, index, onRequireAuth, onVisible, onOrder, onDishOpen }) {
     return () => window.clearTimeout(timeoutId)
   }, [interactionError, shareError])
 
+  useEffect(() => {
+    if (!isCommentOpen) return undefined
+    const controller = new AbortController()
+    const token = localStorage.getItem('biteflow_token')
+    async function loadComments() {
+      setCommentsLoading(true)
+      setCommentsError('')
+      try {
+        const response = await fetch(
+          `${API_BASE_URL}/videos/${encodeURIComponent(item.id)}/comments`,
+          {
+            headers: token ? getAuthHeaders(token) : {},
+            signal: controller.signal,
+          },
+        )
+        const data = await response.json().catch(() => ({}))
+        if (!response.ok) throw new Error(data.detail || 'Comments are unavailable.')
+        const items = Array.isArray(data) ? data : data.items || data.comments || []
+        setComments(items)
+      } catch (requestError) {
+        if (!controller.signal.aborted) {
+          setCommentsError("Couldn't load comments right now. Please try again.")
+          console.error('Unable to load Bite comments', requestError)
+        }
+      } finally {
+        if (!controller.signal.aborted) setCommentsLoading(false)
+      }
+    }
+
+    void loadComments()
+    return () => controller.abort()
+  }, [isCommentOpen, item.id])
+
   const food = item.food_item
   const restaurantName =
     food?.restaurants?.name ??
@@ -116,7 +154,6 @@ function Reel({ item, index, onRequireAuth, onVisible, onOrder, onDishOpen }) {
     ''
   const dishName = food?.name ?? ''
   const price = food?.price
-  const likeCount = (item.total_likes ?? item.likes ?? 0) + (isLiked ? 1 : 0)
   const rating = food?.rating || '4.5'
   const eta = getDeliveryEtaMinutes(
     food?.restaurants ?? item.restaurant,
@@ -184,19 +221,45 @@ function Reel({ item, index, onRequireAuth, onVisible, onOrder, onDishOpen }) {
   }
 
   const likeVideo = () => {
-    if (isLiked || busyAction) return
+    if (busyAction) return
+    const shouldLike = !isLiked
     requireAuth('like', async (token) => {
-      await requestInteraction(item.id, 'like', token)
-      setIsLiked(true)
-      animateLike()
+      setIsLiked(shouldLike)
+      setLikeCount((count) => Math.max(0, count + (shouldLike ? 1 : -1)))
+      try {
+        await requestInteraction(
+          item.id,
+          'like',
+          token,
+          '',
+          shouldLike ? 'GET' : 'DELETE',
+        )
+        if (shouldLike) animateLike()
+      } catch (requestError) {
+        setIsLiked(!shouldLike)
+        setLikeCount((count) => Math.max(0, count + (shouldLike ? -1 : 1)))
+        throw requestError
+      }
     })
   }
 
   const saveVideo = () => {
-    if (isSaved || busyAction) return
+    if (busyAction) return
+    const shouldSave = !isSaved
     requireAuth('save', async (token) => {
-      await requestInteraction(item.id, 'save', token)
-      setIsSaved(true)
+      setIsSaved(shouldSave)
+      try {
+        await requestInteraction(
+          item.id,
+          'save',
+          token,
+          '',
+          shouldSave ? 'GET' : 'DELETE',
+        )
+      } catch (requestError) {
+        setIsSaved(!shouldSave)
+        throw requestError
+      }
     })
   }
 
@@ -206,12 +269,21 @@ function Reel({ item, index, onRequireAuth, onVisible, onOrder, onDishOpen }) {
     if (!comment || busyAction) return
 
     requireAuth('comment', async (token) => {
-      await requestInteraction(
-        item.id,
-        'comment',
-        token,
-        `?comment=${encodeURIComponent(comment)}`,
+      const response = await fetch(
+        `${API_BASE_URL}/videos/${encodeURIComponent(item.id)}/comments`,
+        {
+          method: 'POST',
+          headers: getAuthHeaders(token),
+          body: JSON.stringify({ comment_text: comment }),
+        },
       )
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        const error = new Error("Couldn't complete that right now. Please try again.")
+        error.status = response.status
+        throw error
+      }
+      if (data.comment) setComments((current) => [data.comment, ...current])
       setCommentCount((count) => count + 1)
       setCommentDraft('')
     })
@@ -355,7 +427,7 @@ function Reel({ item, index, onRequireAuth, onVisible, onOrder, onDishOpen }) {
           <button
             type="button"
             onClick={likeVideo}
-            disabled={Boolean(busyAction) || isLiked}
+            disabled={Boolean(busyAction)}
             className="flex flex-col items-center"
             aria-label={isLiked ? 'Unlike' : 'Like'}
             aria-pressed={isLiked}
@@ -397,7 +469,7 @@ function Reel({ item, index, onRequireAuth, onVisible, onOrder, onDishOpen }) {
           <button
             type="button"
             onClick={saveVideo}
-            disabled={Boolean(busyAction) || isSaved}
+            disabled={Boolean(busyAction)}
             className="flex flex-col items-center"
             aria-label={isSaved ? 'Saved' : 'Save'}
             aria-pressed={isSaved}
@@ -427,8 +499,39 @@ function Reel({ item, index, onRequireAuth, onVisible, onOrder, onDishOpen }) {
               </button>
             </div>
             <p className="mb-3 text-sm text-neutral-500">
-              {item.total_comments ?? 0} comments
+              {commentCount} comments
             </p>
+            <div className="mb-3 max-h-[35vh] space-y-3 overflow-y-auto">
+              {commentsLoading ? (
+                <p className="py-4 text-center text-sm text-neutral-500">Loading comments…</p>
+              ) : commentsError ? (
+                <p role="status" className="py-4 text-center text-sm text-neutral-500">
+                  {commentsError}
+                </p>
+              ) : comments.length ? (
+                comments.map((comment) => (
+                  <article key={comment.id} className="border-b border-neutral-100 pb-2">
+                    <p className="text-xs font-bold">
+                      {comment.user_name ||
+                        `${comment.user?.first_name || ''} ${comment.user?.last_name || ''}`.trim() ||
+                        'Biteflow member'}
+                    </p>
+                    <p className="mt-1 whitespace-pre-wrap text-sm text-neutral-700">
+                      {comment.comment_text || comment.content}
+                    </p>
+                    {comment.created_at && (
+                      <time className="mt-1 block text-[10px] text-neutral-400">
+                        {new Date(comment.created_at).toLocaleString()}
+                      </time>
+                    )}
+                  </article>
+                ))
+              ) : (
+                <p className="py-4 text-center text-sm text-neutral-500">
+                  Be the first to comment.
+                </p>
+              )}
+            </div>
             <label className="sr-only" htmlFor={`comment-${item.id}`}>
               Write a comment
             </label>
@@ -685,6 +788,11 @@ function AuthModal({ onClose, onAuthenticated }) {
 function OrderSheet({ reel, onClose, onRequireAuth, onSuccess }) {
   const [quantity, setQuantity] = useState(1)
   const [deliveryNote, setDeliveryNote] = useState('')
+  const [deliveryAddressMode, setDeliveryAddressMode] = useState(() =>
+    localStorage.getItem('biteflow_location') ? 'current' : 'manual',
+  )
+  const [manualAddress, setManualAddress] = useState('')
+  const savedAddress = localStorage.getItem('biteflow_location') || ''
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
   const food = reel?.food_item
@@ -714,6 +822,10 @@ function OrderSheet({ reel, onClose, onRequireAuth, onSuccess }) {
                 video_id: reel.id ?? null,
                 quantity,
                 delivery_note: deliveryNote.trim(),
+                delivery_address:
+                  deliveryAddressMode === 'current'
+                    ? savedAddress
+                    : manualAddress.trim(),
               }),
             })
           } catch (requestError) {
@@ -821,8 +933,58 @@ function OrderSheet({ reel, onClose, onRequireAuth, onSuccess }) {
           </div>
         </div>
 
+        <fieldset className="mt-4 space-y-2">
+          <legend className="mb-2 text-sm font-semibold text-neutral-700">
+            Deliver To
+          </legend>
+          {savedAddress && (
+            <label className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 ${
+              deliveryAddressMode === 'current'
+                ? 'border-[#FF6600] bg-orange-50/80'
+                : 'border-white/60 bg-white/55'
+            }`}>
+              <input
+                type="radio"
+                name="delivery-address"
+                value="current"
+                checked={deliveryAddressMode === 'current'}
+                onChange={() => setDeliveryAddressMode('current')}
+                className="mt-0.5 accent-[#FF6600]"
+              />
+              <span className="min-w-0">
+                <span className="block text-sm font-bold">Current detected location</span>
+                <span className="mt-0.5 block text-xs text-neutral-600">{savedAddress}</span>
+              </span>
+            </label>
+          )}
+          <label className={`flex cursor-pointer items-center gap-3 rounded-xl border p-3 ${
+            deliveryAddressMode === 'manual'
+              ? 'border-[#FF6600] bg-orange-50/80'
+              : 'border-white/60 bg-white/55'
+          }`}>
+            <input
+              type="radio"
+              name="delivery-address"
+              value="manual"
+              checked={deliveryAddressMode === 'manual'}
+              onChange={() => setDeliveryAddressMode('manual')}
+              className="accent-[#FF6600]"
+            />
+            <span className="text-sm font-bold">+ Add Manual Address</span>
+          </label>
+          {deliveryAddressMode === 'manual' && (
+            <input
+              required
+              value={manualAddress}
+              onChange={(event) => setManualAddress(event.target.value)}
+              placeholder="Hostel, street, or landmark"
+              className="w-full rounded-xl border border-white/60 bg-white/65 px-3.5 py-3 text-sm text-neutral-800 outline-none placeholder:text-neutral-400 focus:border-[#FF6600]"
+            />
+          )}
+        </fieldset>
+
         <label className="mt-4 block text-sm font-semibold text-neutral-700">
-          Delivery location / note
+          Special instructions
           <textarea
             rows={2}
             value={deliveryNote}
@@ -841,7 +1003,11 @@ function OrderSheet({ reel, onClose, onRequireAuth, onSuccess }) {
         <button
           type="button"
           onClick={placeOrder}
-          disabled={submitting || !reel.food_item_id && !food?.id}
+          disabled={
+            submitting ||
+            (!reel.food_item_id && !food?.id) ||
+            (deliveryAddressMode === 'manual' && !manualAddress.trim())
+          }
           className="mt-4 w-full rounded-xl bg-[#FF6600] py-3.5 text-sm font-extrabold text-white disabled:cursor-not-allowed disabled:opacity-50"
         >
           {submitting ? 'Placing order…' : `Order Now • ₹${price * quantity}`}
@@ -954,6 +1120,7 @@ function Feed({ activeTab, onActiveTabChange, createRequest }) {
       try {
         const response = await fetch(`${FEED_URL}?limit=5&offset=0`, {
           signal: controller.signal,
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
         })
         if (!response.ok) {
           throw new Error(`The feed request failed (${response.status}).`)
@@ -976,7 +1143,7 @@ function Feed({ activeTab, onActiveTabChange, createRequest }) {
 
     fetchFeed()
     return () => controller.abort()
-  }, [])
+  }, [token])
 
   const handledCreateRequestRef = useRef(0)
   useEffect(() => {
@@ -1009,7 +1176,10 @@ function Feed({ activeTab, onActiveTabChange, createRequest }) {
       try {
         const response = await fetch(
           `${FEED_URL}?limit=5&offset=${encodeURIComponent(offset)}`,
-          { signal: controller.signal },
+          {
+            signal: controller.signal,
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+          },
         )
         if (!response.ok) {
           throw new Error(`Could not load more Bites (${response.status}).`)
@@ -1036,7 +1206,7 @@ function Feed({ activeTab, onActiveTabChange, createRequest }) {
 
     fetchMore()
     return () => controller.abort()
-  }, [activeIndex, hasMore, loading, nextOffset, reels.length])
+  }, [activeIndex, hasMore, loading, nextOffset, reels.length, token])
 
   return (
     <>

@@ -11,5 +11,6 @@ class Orders(Base):
     quantity = Column(Integer)
     total_price = Column(Float)
     delivery_note=Column(String)
+    delivery_address = Column(String)
     status=Column(String)
     order_time=Column(DateTime)

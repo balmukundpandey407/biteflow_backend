@@ -14,7 +14,8 @@ class food_in(BaseModel):
     description: Optional[str]
     price: int
     image_url: str
-    is_veg: bool 
+    is_veg: bool
+    restaurant_id: str
 
     
     class Config:

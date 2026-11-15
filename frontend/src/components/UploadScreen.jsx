@@ -29,6 +29,12 @@ const VIDEO_FILTERS = [
   { name: 'Vintage', shortName: 'Vintage', css: 'sepia(0.35) saturate(0.85) contrast(1.08)' },
 ]
 
+function foodIsVegetarian(value) {
+  return ['true', '1', 'yes', 'veg', 'vegetarian'].includes(
+    String(value ?? '').toLowerCase(),
+  )
+}
+
 function CameraPreview({ stream, filter }) {
   const ref = useRef(null)
 
@@ -92,6 +98,7 @@ function UploadScreen({ token, onClose, onPosted }) {
   const [isAddingDish, setIsAddingDish] = useState(false)
   const [newDishName, setNewDishName] = useState('')
   const [newPrice, setNewPrice] = useState('')
+  const [isVeg, setIsVeg] = useState(true)
   const [title, setTitle] = useState('')
   const [caption, setCaption] = useState('')
   const [loadingRestaurants, setLoadingRestaurants] = useState(false)
@@ -487,7 +494,7 @@ function UploadScreen({ token, onClose, onPosted }) {
         '/upload/',
         '/upload/so_1,w_300,h_300,c_fill/',
       ).replace(/\.[^/.]+$/, '.jpg')
-      const response = await fetch(`${API_BASE_URL}/video`, {
+      const response = await fetch(`${API_BASE_URL}/videos`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -498,6 +505,7 @@ function UploadScreen({ token, onClose, onPosted }) {
           food_item_id: isAddingDish ? null : selectedFoodItemId,
           dish_name: isAddingDish ? newDishName.trim() : null,
           price: isAddingDish ? Number(newPrice) : null,
+          is_veg: isVeg,
           title: title.trim(),
           description: caption.trim(),
           video_url: videoUrl,
@@ -577,6 +585,14 @@ function UploadScreen({ token, onClose, onPosted }) {
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 px-8 text-center">
           <Camera size={44} className="text-white/60" />
           <p className="text-sm text-white/75">{cameraError || 'Starting camera…'}</p>
+        </div>
+      )}
+      {publishToast && (
+        <div
+          role="status"
+          className="fixed bottom-6 left-1/2 z-[80] w-[calc(100%-2rem)] max-w-md -translate-x-1/2 rounded-full bg-neutral-900/95 px-4 py-3 text-center text-sm font-semibold text-white shadow-xl"
+        >
+          {publishToast}
         </div>
       )}
 
@@ -940,12 +956,32 @@ function UploadScreen({ token, onClose, onPosted }) {
                   aria-label="Search menu"
                 />
               </label>
+              <fieldset>
+                <legend className="mb-2 text-xs font-semibold text-white/75">Food type</legend>
+                <div className="grid grid-cols-2 gap-2">
+                  {[true, false].map((veg) => (
+                    <button
+                      key={String(veg)}
+                      type="button"
+                      onClick={() => setIsVeg(veg)}
+                      className={`rounded-xl border px-3 py-2 text-sm font-bold ${
+                        isVeg === veg
+                          ? veg
+                            ? 'border-emerald-400 bg-emerald-500/20 text-emerald-100'
+                            : 'border-red-400 bg-red-500/20 text-red-100'
+                          : 'border-white/15 bg-white/5 text-white/70'
+                      }`}
+                      aria-pressed={isVeg === veg}
+                    >
+                      <span className={`mr-1 inline-block size-2 rounded-full ${veg ? 'bg-emerald-400' : 'bg-red-500'}`} />
+                      {veg ? 'Veg' : 'Non-Veg'}
+                    </button>
+                  ))}
+                </div>
+              </fieldset>
               <div className="mt-4 min-h-0 flex-1 space-y-2 overflow-y-auto pb-3">
                 {filteredMenuItems.map((food) => {
                   const selected = selectedFoodItemId === food.id && !isAddingDish
-                  const isVeg = ['true', '1', 'yes', 'veg', 'vegetarian'].includes(
-                    String(food.is_veg).toLowerCase(),
-                  )
                   return (
                     <button
                       key={food.id}
@@ -953,6 +989,7 @@ function UploadScreen({ token, onClose, onPosted }) {
                       onClick={() => {
                         setSelectedFoodItemId(food.id)
                         setIsAddingDish(false)
+                        setIsVeg(foodIsVegetarian(food.is_veg))
                         setTitle(food.name || '')
                         setError('')
                       }}
@@ -974,9 +1011,9 @@ function UploadScreen({ token, onClose, onPosted }) {
                           ₹{food.price}
                         </span>
                         <span className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold ${
-                          isVeg ? 'bg-emerald-500/20 text-emerald-200' : 'bg-red-500/20 text-red-200'
+                            foodIsVegetarian(food.is_veg) ? 'bg-emerald-500/20 text-emerald-200' : 'bg-red-500/20 text-red-200'
                         }`}>
-                          {isVeg ? 'VEG' : 'NON-VEG'}
+                            {foodIsVegetarian(food.is_veg) ? 'VEG' : 'NON-VEG'}
                         </span>
                       </span>
                       {selected && <span className="text-xs font-bold text-orange-300">Selected</span>}
@@ -1031,14 +1068,29 @@ function UploadScreen({ token, onClose, onPosted }) {
                         className="mt-1.5 w-full rounded-xl border border-white/15 bg-black/20 px-3 py-3 text-sm text-white outline-none placeholder:text-white/40 focus:border-orange-400"
                       />
                     </label>
-                  </div>
-                )}
-                {publishToast && (
-                  <div
-                    role="status"
-                    className="fixed bottom-6 left-1/2 z-[80] w-[calc(100%-2rem)] max-w-md -translate-x-1/2 rounded-full bg-neutral-900/95 px-4 py-3 text-center text-sm font-semibold text-white shadow-xl"
-                  >
-                    {publishToast}
+                    <fieldset>
+                      <legend className="mb-2 text-xs font-semibold text-white/75">Food type</legend>
+                      <div className="grid grid-cols-2 gap-2">
+                        {[true, false].map((veg) => (
+                          <button
+                            key={String(veg)}
+                            type="button"
+                            onClick={() => setIsVeg(veg)}
+                            className={`rounded-xl border px-3 py-2 text-sm font-bold ${
+                              isVeg === veg
+                                ? veg
+                                  ? 'border-emerald-400 bg-emerald-500/20 text-emerald-100'
+                                  : 'border-red-400 bg-red-500/20 text-red-100'
+                                : 'border-white/15 bg-white/5 text-white/70'
+                            }`}
+                            aria-pressed={isVeg === veg}
+                          >
+                            <span className={`mr-1 inline-block size-2 rounded-full ${veg ? 'bg-emerald-400' : 'bg-red-500'}`} />
+                            {veg ? 'Veg' : 'Non-Veg'}
+                          </button>
+                        ))}
+                      </div>
+                    </fieldset>
                   </div>
                 )}
               </div>
@@ -1088,7 +1140,7 @@ function UploadScreen({ token, onClose, onPosted }) {
                     required
                     value={title}
                     onChange={(event) => setTitle(event.target.value)}
-                    maxLength={120}
+                    maxLength={25}
                     placeholder="Give your Bite a title"
                     className="mt-1.5 w-full rounded-xl border border-white/15 bg-white/5 px-3.5 py-3 text-sm text-white outline-none placeholder:text-white/40 focus:border-[#FF6600]"
                   />
@@ -1099,7 +1151,7 @@ function UploadScreen({ token, onClose, onPosted }) {
                     rows={4}
                     value={caption}
                     onChange={(event) => setCaption(event.target.value)}
-                    maxLength={1000}
+                    maxLength={50}
                     placeholder="Tell everyone about this Bite #food"
                     className="mt-1.5 w-full resize-none rounded-xl border border-white/15 bg-white/5 px-3.5 py-3 text-sm text-white outline-none placeholder:text-white/40 focus:border-[#FF6600]"
                   />

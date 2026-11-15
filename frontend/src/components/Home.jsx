@@ -11,6 +11,7 @@ import {
 } from 'lucide-react'
 import { rankBites, rankDishes } from '../utils/recommendations.js'
 import { API_BASE_URL } from '../api.js'
+import biteflowLogo from '../assets/biteflow-logo.png'
 
 const CATEGORIES = ['Maggi', 'Rolls', 'Coffee', 'Thali', 'Momos']
 const POPULAR_CRAVINGS = ['Maggi', 'Chole bhature', 'Momos', 'Cold coffee']
@@ -330,37 +331,8 @@ function Home({ reels, loading, error, token, onOpenFeed, onOrder }) {
   return (
     <main className="mx-auto min-h-[100dvh] w-full max-w-md bg-white pb-20 text-neutral-900">
       <header className="relative z-30 border-b border-white/15 bg-[#FF6600]/90 px-3 py-2 text-white shadow-sm backdrop-blur-md">
-        <div className="mb-2 flex min-h-9 items-center justify-between gap-2">
-          <span className="text-lg font-extrabold tracking-tight">Biteflow</span>
-          <div className="flex shrink-0 items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setFoodMode((mode) => (mode === 'veg' ? 'non-veg' : 'veg'))}
-              className={`relative flex h-7 w-[82px] shrink-0 items-center rounded-full transition-colors duration-300 ${
-                foodMode === 'veg' ? 'bg-[#16A34A]' : 'bg-[#DC2626]'
-              }`}
-              aria-label={`Food filter: ${foodMode === 'veg' ? 'Veg' : 'Non-Veg'}, switch`}
-              aria-pressed={foodMode === 'veg'}
-            >
-              <span className={`absolute top-1 grid size-5 place-items-center rounded-full bg-white shadow-md transition-transform duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)] ${
-                foodMode === 'veg' ? 'translate-x-[58px]' : 'translate-x-1'
-              }`} />
-              <span className={`w-full px-2 text-[10px] font-bold text-white ${
-                foodMode === 'veg' ? 'pr-6 text-left' : 'pl-6 text-right'
-              }`}>
-                {foodMode === 'veg' ? 'Veg' : 'Non-Veg'}
-              </span>
-            </button>
-            {isLocationExpanded && location && (
-              <button
-                type="button"
-                onClick={() => setIsLocationPromptOpen(true)}
-                className="max-w-[min(34vw,150px)] truncate rounded-full border border-white/20 bg-black/20 px-2.5 py-1.5 text-xs font-semibold text-white backdrop-blur-md"
-                aria-label={`Edit delivery location: ${location}`}
-              >
-                {location}
-              </button>
-            )}
+        <div className="mb-2 grid min-h-[30px] grid-cols-3 items-center gap-1">
+          <div className="flex min-w-0 justify-start">
             <button
               type="button"
               onClick={() => {
@@ -369,10 +341,48 @@ function Home({ reels, loading, error, token, onOpenFeed, onOrder }) {
                 setIsEditingLocation(!location)
                 setIsLocationPromptOpen(true)
               }}
-              className="grid size-9 shrink-0 place-items-center rounded-full border border-white/20 bg-black/20 text-white backdrop-blur-md transition-colors"
-              aria-label={location ? `View delivery location: ${location}` : 'Set delivery location'}
+              className={`flex h-[26px] max-w-full items-center gap-1 rounded-full border border-white/20 bg-black/20 px-2 text-white backdrop-blur-md transition-all duration-300 ${
+                isLocationExpanded ? 'w-[min(34vw,150px)]' : 'w-auto'
+              }`}
+              aria-label={location ? `Change delivery location: ${location}` : 'Set delivery location'}
+              title={location || 'Set delivery location'}
             >
-              <MapPin size={18} />
+              <MapPin size={14} className="shrink-0" />
+              {location && (
+                <span className={`truncate text-[9px] font-semibold ${
+                  isLocationExpanded ? 'max-w-[min(27vw,120px)]' : 'max-w-[72px]'
+                }`}>
+                  {location}
+                </span>
+              )}
+            </button>
+          </div>
+          <div className="flex items-center justify-center gap-1">
+            <img
+              src={biteflowLogo}
+              alt=""
+              className="size-6 rounded-full object-cover"
+            />
+            <span className="text-sm font-extrabold tracking-tight">Biteflow</span>
+          </div>
+          <div className="flex min-w-0 justify-end">
+            <button
+              type="button"
+              onClick={() => setFoodMode((mode) => (mode === 'veg' ? 'non-veg' : 'veg'))}
+              className={`relative flex h-[22px] w-[58px] shrink-0 items-center rounded-full transition-colors duration-300 ${
+                foodMode === 'veg' ? 'bg-[#16A34A]' : 'bg-[#DC2626]'
+              }`}
+              aria-label={`Food filter: ${foodMode === 'veg' ? 'Veg' : 'Non-Veg'}, switch`}
+              aria-pressed={foodMode === 'veg'}
+            >
+              <span className={`absolute top-1 grid size-[14px] place-items-center rounded-full bg-white shadow-md transition-transform duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)] ${
+                foodMode === 'veg' ? 'translate-x-[40px]' : 'translate-x-1'
+              }`} />
+              <span className={`w-full px-1 text-[9px] font-bold text-white ${
+                foodMode === 'veg' ? 'pr-4 text-left' : 'pl-4 text-right'
+              }`}>
+                {foodMode === 'veg' ? 'Veg' : 'Non-Veg'}
+              </span>
             </button>
           </div>
         </div>

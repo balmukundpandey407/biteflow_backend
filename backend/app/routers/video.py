@@ -4,18 +4,59 @@ from uuid import uuid4
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.database.db import get_db
 from app.models.food_item import FoodItem
 from app.models.restaurant import Restaurant
 from app.models.video import Video
 from app.routers.auth import get_current_user
-from app.schemas.video import video_in
+from app.schemas.video import video_in, video_update
 
 video_routes = APIRouter()
 
 
+def serialize_video(video):
+    food_item = video.food_item
+    restaurant = food_item.restaurants if food_item else None
+    return {
+        "id": video.id,
+        "title": video.title,
+        "description": video.description,
+        "video_url": video.video_url,
+        "thumbnail_url": video.thumbnail_url,
+        "total_views": video.total_views,
+        "total_likes": video.total_likes,
+        "total_comments": video.total_comments,
+        "creator_id": video.creator_id,
+        "food_item_id": video.food_item_id,
+        "food_item": (
+            {
+                "id": food_item.id,
+                "name": food_item.name,
+                "price": food_item.price,
+                "image_url": food_item.image_url,
+                "is_veg": food_item.is_veg,
+                "restaurants": (
+                    {
+                        "id": restaurant.id,
+                        "name": restaurant.name,
+                        "phone": restaurant.phone,
+                        "latitude": restaurant.latitude,
+                        "longitude": restaurant.longitude,
+                    }
+                    if restaurant
+                    else None
+                ),
+            }
+            if food_item
+            else None
+        ),
+    }
+
+
 @video_routes.post("/video")
+@video_routes.post("/videos")
 async def upload_bite(
     video_data: video_in,
     db: AsyncSession = Depends(get_db),
@@ -37,6 +78,9 @@ async def upload_bite(
                 status_code=400,
                 detail="Food item does not belong to the selected restaurant",
             )
+        if video_data.is_veg is not None:
+            food_item.is_veg = str(video_data.is_veg).lower()
+            food_item.updated_at = datetime.now()
     elif (
         video_data.restaurant_id
         and video_data.dish_name
@@ -56,7 +100,11 @@ async def upload_bite(
             description=None,
             price=video_data.price,
             image_url=video_data.thumbnail_url or video_data.video_url,
-            is_veg="unknown",
+            is_veg=(
+                str(video_data.is_veg).lower()
+                if video_data.is_veg is not None
+                else "unknown"
+            ),
             restaurant_id=restaurant.id,
             created_at=now,
             updated_at=now,
@@ -88,6 +136,7 @@ async def upload_bite(
         total_comments=0,
         creator_id=current_user.id,
         food_item_id=food_item.id,
+        food_item=food_item,
         created_at=datetime.now(),
         updated_at=datetime.now(),
     )
@@ -97,18 +146,61 @@ async def upload_bite(
     await db.refresh(bite)
 
     return {
-        "id": bite.id,
+        **serialize_video(bite),
         "message": "Bite created successfully",
-        "status_code": 200,
-        "food_item": {
-            "id": food_item.id,
-            "name": food_item.name,
-            "price": food_item.price,
-            "image_url": food_item.image_url,
-            "restaurants": {
-                "id": food_item.restaurant_id,
-                "name": restaurant.name if restaurant else None,
-                "phone": restaurant.phone if restaurant else None,
-            },
-        },
+        "status_code": 201,
     }
+
+
+@video_routes.patch("/videos/{video_id}")
+async def update_bite(
+    video_id: str,
+    video_data: video_update,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    result = await db.execute(
+        select(Video)
+        .where(Video.id == video_id)
+        .options(selectinload(Video.food_item).selectinload(FoodItem.restaurants))
+    )
+    video = result.scalar_one_or_none()
+    if video is None:
+        raise HTTPException(status_code=404, detail="Bite not found")
+    if video.creator_id != current_user.id:
+        raise HTTPException(status_code=403, detail="You can only edit your own Bites")
+
+    updates = video_data.model_dump(exclude_unset=True)
+    if "food_item_id" in updates:
+        food_item_id = updates.pop("food_item_id")
+        if food_item_id is None:
+            raise HTTPException(status_code=422, detail="A Bite must be linked to a dish")
+        food_result = await db.execute(
+            select(FoodItem)
+            .where(FoodItem.id == food_item_id)
+            .options(selectinload(FoodItem.restaurants))
+        )
+        food_item = food_result.scalar_one_or_none()
+        if food_item is None:
+            raise HTTPException(status_code=404, detail="Food item not found")
+        video.food_item_id = food_item.id
+        video.food_item = food_item
+
+    if "is_veg" in updates:
+        is_veg = updates.pop("is_veg")
+        video.food_item.is_veg = str(is_veg).lower()
+        video.food_item.updated_at = datetime.now()
+
+    for field in ("title", "description"):
+        if field in updates:
+            setattr(video, field, updates[field])
+    video.updated_at = datetime.now()
+    await db.commit()
+    await db.refresh(video)
+
+    refreshed = await db.execute(
+        select(Video)
+        .where(Video.id == video_id)
+        .options(selectinload(Video.food_item).selectinload(FoodItem.restaurants))
+    )
+    return serialize_video(refreshed.scalar_one())

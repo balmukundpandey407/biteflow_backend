@@ -38,6 +38,7 @@ async def get_orders(
                 "quantity": order.quantity,
                 "total_price": order.total_price,
                 "delivery_note": order.delivery_note,
+                "delivery_address": order.delivery_address,
                 "status": order.status,
                 "order_time": order.order_time,
                 "food_item": {
@@ -92,6 +93,7 @@ async def create_order(
         quantity=order.quantity,
         total_price=food_item.price * order.quantity,
         delivery_note=order.delivery_note,
+        delivery_address=order.delivery_address,
         status="pending",
         order_time=order_time,
     )
@@ -109,6 +111,7 @@ async def create_order(
             "quantity": new_order.quantity,
             "total_price": new_order.total_price,
             "delivery_note": new_order.delivery_note,
+            "delivery_address": new_order.delivery_address,
             "status": new_order.status,
             "order_time": new_order.order_time,
         },

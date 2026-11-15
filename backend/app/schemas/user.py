@@ -17,6 +17,7 @@ class user_out(BaseModel):
     first_name : str
     last_name : Optional[str]
     email: EmailStr
+    phone: Optional[str] = None
 
     class Config:
         from_attributes = True

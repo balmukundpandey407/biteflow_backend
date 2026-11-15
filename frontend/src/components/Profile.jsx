@@ -69,6 +69,9 @@ function Profile({ token, onLogin, onCreate, onOpenSettings, reels, onOpenBites,
   const [editName, setEditName] = useState('')
   const [editAvatar, setEditAvatar] = useState('')
   const [savingProfile, setSavingProfile] = useState(false)
+  const [editingBite, setEditingBite] = useState(null)
+  const [editFoods, setEditFoods] = useState([])
+  const [savingBite, setSavingBite] = useState(false)
   const [preferences, setPreferences] = useState(() => {
     try {
       return JSON.parse(localStorage.getItem('biteflow_profile_preferences') || '{}')
@@ -246,6 +249,62 @@ function Profile({ token, onLogin, onCreate, onOpenSettings, reels, onOpenBites,
     }
   }
 
+  const openBiteEditor = async (reel) => {
+    setError('')
+    setEditingBite({
+      ...reel,
+      food_item_id: reel.food_item_id || reel.food_item?.id || '',
+      is_veg: ['true', '1', 'yes', 'veg', 'vegetarian'].includes(
+        String(reel.food_item?.is_veg ?? '').toLowerCase(),
+      ),
+    })
+    try {
+      const foodData = await fetchJson('/items', token)
+      setEditFoods(getItems(foodData))
+    } catch (requestError) {
+      console.error('Unable to load food items for Bite editing', requestError)
+      setEditFoods(reel.food_item ? [reel.food_item] : [])
+    }
+  }
+
+  const saveBite = async (event) => {
+    event.preventDefault()
+    if (!editingBite || !token) return
+    setSavingBite(true)
+    setError('')
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/videos/${encodeURIComponent(editingBite.id)}`,
+        {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            title: editingBite.title.trim(),
+            description: editingBite.description || '',
+            food_item_id: editingBite.food_item_id,
+            is_veg: editingBite.is_veg,
+          }),
+        },
+      )
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        throw new Error(data.detail || "Couldn't update this Bite. Please try again.")
+      }
+      setProfileData((current) => ({
+        ...current,
+        mine: current.mine.map((bite) => bite.id === data.id ? data : bite),
+      }))
+      setEditingBite(null)
+    } catch (saveError) {
+      setError(saveError.message || "Couldn't update this Bite. Please try again.")
+    } finally {
+      setSavingBite(false)
+    }
+  }
+
   return (
     <main className="mx-auto min-h-[calc(100dvh-4rem)] w-full max-w-md bg-white pb-20 text-neutral-900">
       <header className="flex items-center justify-between border-b border-white/15 bg-[#FF6600]/90 px-4 py-3 text-white shadow-sm backdrop-blur-md">
@@ -370,29 +429,43 @@ function Profile({ token, onLogin, onCreate, onOpenSettings, reels, onOpenBites,
           {bites.length ? (
             <div className="grid grid-cols-3 gap-2 px-2">
               {bites.map((reel, index) => (
-                <button
+                <article
                   key={reel.id ?? index}
-                  type="button"
-                  onClick={() => onOpenBites(reel)}
                   className="relative aspect-[0.72] overflow-hidden rounded-xl border border-white/15 bg-neutral-900 text-left text-white"
                 >
-                  {reel.thumbnail_url && (
-                    <img
-                      src={reel.thumbnail_url}
-                      alt=""
-                      className="absolute inset-0 h-full w-full object-cover"
-                    />
+                  <button
+                    type="button"
+                    onClick={() => onOpenBites(reel)}
+                    className="absolute inset-0 h-full w-full text-left"
+                  >
+                    {reel.thumbnail_url && (
+                      <img
+                        src={reel.thumbnail_url}
+                        alt=""
+                        className="absolute inset-0 h-full w-full object-cover"
+                      />
+                    )}
+                    <span className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
+                    <span className="absolute inset-x-2 bottom-2">
+                      <span className="line-clamp-2 block text-xs font-bold">
+                        {reel.food_item?.name || reel.title}
+                      </span>
+                      <span className="mt-1 block text-[10px]">
+                        {reel.total_views ?? 0} views
+                      </span>
+                    </span>
+                  </button>
+                  {activeBiteFilter === 'mine' && (
+                    <button
+                      type="button"
+                      onClick={() => void openBiteEditor(reel)}
+                      className="absolute right-2 top-2 z-10 grid size-8 place-items-center rounded-full bg-black/65 text-white backdrop-blur-md"
+                      aria-label={`Edit ${reel.title || 'Bite'}`}
+                    >
+                      <Pencil size={15} />
+                    </button>
                   )}
-                  <span className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
-                  <span className="absolute inset-x-2 bottom-2">
-                    <span className="line-clamp-2 block text-xs font-bold">
-                      {reel.food_item?.name || reel.title}
-                    </span>
-                    <span className="mt-1 block text-[10px]">
-                      {reel.total_views ?? 0} views
-                    </span>
-                  </span>
-                </button>
+                </article>
               ))}
             </div>
           ) : (
@@ -491,6 +564,103 @@ function Profile({ token, onLogin, onCreate, onOpenSettings, reels, onOpenBites,
                 <span className="grid size-20 place-items-center rounded-full bg-orange-50 text-orange-600">
                   <CircleUserRound size={42} />
                 </span>
+              )}
+              {editingBite && (
+                <div
+                  className="fixed inset-0 z-[80] flex items-end justify-center bg-black/50 p-3 backdrop-blur-sm sm:items-center"
+                  onClick={() => setEditingBite(null)}
+                >
+                  <form
+                    onSubmit={saveBite}
+                    onClick={(event) => event.stopPropagation()}
+                    className="max-h-[90dvh] w-full max-w-md space-y-4 overflow-y-auto rounded-3xl border border-white/60 bg-white/90 p-5 text-neutral-900 shadow-2xl backdrop-blur-2xl"
+                    role="dialog"
+                    aria-modal="true"
+                    aria-label="Edit Bite"
+                  >
+                    <div className="flex items-center justify-between">
+                      <h2 className="text-xl font-extrabold">Edit Bite</h2>
+                      <button
+                        type="button"
+                        onClick={() => setEditingBite(null)}
+                        className="grid size-9 place-items-center rounded-full bg-orange-50"
+                        aria-label="Close Bite editor"
+                      >
+                        <X size={19} />
+                      </button>
+                    </div>
+                    <label className="block text-sm font-semibold">
+                      Title
+                      <input
+                        required
+                        maxLength={25}
+                        value={editingBite.title || ''}
+                        onChange={(event) => setEditingBite((bite) => ({ ...bite, title: event.target.value }))}
+                        className="mt-1.5 w-full rounded-xl border border-orange-500/20 bg-white px-3.5 py-3 outline-none focus:border-orange-500"
+                      />
+                    </label>
+                    <label className="block text-sm font-semibold">
+                      Description / Hashtags
+                      <textarea
+                        maxLength={50}
+                        rows={3}
+                        value={editingBite.description || ''}
+                        onChange={(event) => setEditingBite((bite) => ({ ...bite, description: event.target.value }))}
+                        className="mt-1.5 w-full resize-none rounded-xl border border-orange-500/20 bg-white px-3.5 py-3 outline-none focus:border-orange-500"
+                      />
+                    </label>
+                    <label className="block text-sm font-semibold">
+                      Linked dish
+                      <select
+                        required
+                        value={editingBite.food_item_id}
+                        onChange={(event) => {
+                          const food = editFoods.find((item) => item.id === event.target.value)
+                          setEditingBite((bite) => ({
+                            ...bite,
+                            food_item_id: event.target.value,
+                            is_veg: food
+                              ? ['true', '1', 'yes', 'veg', 'vegetarian'].includes(String(food.is_veg).toLowerCase())
+                              : bite.is_veg,
+                          }))
+                        }}
+                        className="mt-1.5 w-full rounded-xl border border-orange-500/20 bg-white px-3.5 py-3 outline-none focus:border-orange-500"
+                      >
+                        {editFoods.map((food) => (
+                          <option key={food.id} value={food.id}>{food.name}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <fieldset>
+                      <legend className="mb-2 text-sm font-semibold">Food type</legend>
+                      <div className="grid grid-cols-2 gap-2">
+                        {[true, false].map((veg) => (
+                          <button
+                            key={String(veg)}
+                            type="button"
+                            onClick={() => setEditingBite((bite) => ({ ...bite, is_veg: veg }))}
+                            className={`rounded-xl border px-3 py-2 text-sm font-bold ${
+                              editingBite.is_veg === veg
+                                ? veg ? 'border-emerald-500 bg-emerald-50 text-emerald-800' : 'border-red-500 bg-red-50 text-red-800'
+                                : 'border-neutral-200 bg-white text-neutral-600'
+                            }`}
+                            aria-pressed={editingBite.is_veg === veg}
+                          >
+                            {veg ? '🟢 Veg' : '🔴 Non-Veg'}
+                          </button>
+                        ))}
+                      </div>
+                    </fieldset>
+                    {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
+                    <button
+                      type="submit"
+                      disabled={savingBite || !editingBite.food_item_id}
+                      className="w-full rounded-xl bg-[#FF6600] py-3.5 text-sm font-extrabold text-white disabled:opacity-60"
+                    >
+                      {savingBite ? 'Saving…' : 'Save Bite'}
+                    </button>
+                  </form>
+                </div>
               )}
               <label className="cursor-pointer rounded-xl border border-orange-500/20 bg-white px-3 py-2 text-sm font-bold text-orange-700">
                 Change photo
