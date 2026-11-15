@@ -13,13 +13,14 @@ import {
   X,
   MapPin,
 } from 'lucide-react'
+import { API_BASE_URL } from '../api.js'
 
-const API_ORIGIN = 'https://crispy-waffle-7vjrgrx67pww2w55w-8000.app.github.dev'
-const RESTAURANTS_URL = `${API_ORIGIN}/restaurants`
+const RESTAURANTS_URL = `${API_BASE_URL}/restaurants`
 const CLOUDINARY_CLOUD_NAME =
   import.meta.env.VITE_CLOUDINARY_CLOUD_NAME || 'j37518cz'
 const CLOUDINARY_URL = `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/video/upload`
-const CLOUDINARY_UPLOAD_PRESET = 'biteflows_bites'
+const CLOUDINARY_UPLOAD_PRESET =
+  import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET || 'biteflows_bites'
 const VIDEO_FILTERS = [
   { name: 'Normal', shortName: 'Normal', css: 'none' },
   { name: 'Warm', shortName: 'Warm', css: 'saturate(1.2) sepia(0.12) hue-rotate(-8deg)' },
@@ -479,7 +480,7 @@ function UploadScreen({ token, onClose, onPosted }) {
         '/upload/',
         '/upload/so_1,w_300,h_300,c_fill/',
       ).replace(/\.[^/.]+$/, '.jpg')
-      const response = await fetch(`${API_ORIGIN}/video`, {
+      const response = await fetch(`${API_BASE_URL}/video`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

@@ -10,8 +10,8 @@ import {
   Pencil,
 } from 'lucide-react'
 import { rankBites, rankDishes } from '../utils/recommendations.js'
+import { API_BASE_URL } from '../api.js'
 
-const API_ORIGIN = 'https://crispy-waffle-7vjrgrx67pww2w55w-8000.app.github.dev'
 const CATEGORIES = ['Maggi', 'Rolls', 'Coffee', 'Thali', 'Momos']
 const POPULAR_CRAVINGS = ['Maggi', 'Chole bhature', 'Momos', 'Cold coffee']
 const LOCATION_KEY = 'biteflow_location'
@@ -101,7 +101,7 @@ function Home({ reels, loading, error, token, onOpenFeed, onOrder }) {
     if (!token) return undefined
 
     const controller = new AbortController()
-    fetch(`${API_ORIGIN}/orders`, {
+    fetch(`${API_BASE_URL}/orders`, {
       headers: { Authorization: `Bearer ${token}` },
       signal: controller.signal,
     })

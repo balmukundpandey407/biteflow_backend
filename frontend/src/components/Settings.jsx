@@ -9,8 +9,7 @@ import {
   UserRound,
   X,
 } from 'lucide-react'
-
-const API_ORIGIN = 'https://crispy-waffle-7vjrgrx67pww2w55w-8000.app.github.dev'
+import { API_BASE_URL } from '../api.js'
 const PREFERENCES_KEY = 'biteflow_profile_preferences'
 const PANELS = [
   { id: 'account', label: 'Account', Icon: UserRound },
@@ -45,7 +44,7 @@ function Settings({ token, onClose, onLogout }) {
   useEffect(() => {
     if (!token) return undefined
     const controller = new AbortController()
-    fetch(`${API_ORIGIN}/user/me`, {
+    fetch(`${API_BASE_URL}/user/me`, {
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${token}`,

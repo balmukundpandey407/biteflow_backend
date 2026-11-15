@@ -17,9 +17,9 @@ import UploadScreen from './UploadScreen.jsx'
 import Home from './Home.jsx'
 import Profile from './Profile.jsx'
 import Settings from './Settings.jsx'
+import { API_BASE_URL } from '../api.js'
 
-const FEED_URL = 'https://crispy-waffle-7vjrgrx67pww2w55w-8000.app.github.dev/feed'
-const API_ORIGIN = 'https://crispy-waffle-7vjrgrx67pww2w55w-8000.app.github.dev'
+const FEED_URL = `${API_BASE_URL}/feed`
 
 function getAuthHeaders(token) {
   return {
@@ -29,7 +29,7 @@ function getAuthHeaders(token) {
 }
 
 async function requestInteraction(videoId, action, token, query = '') {
-  const url = `${API_ORIGIN}/video/${encodeURIComponent(videoId)}/${action}${query}`
+  const url = `${API_BASE_URL}/video/${encodeURIComponent(videoId)}/${action}${query}`
   let response
   try {
     response = await fetch(url, {
@@ -39,7 +39,7 @@ async function requestInteraction(videoId, action, token, query = '') {
   } catch (requestError) {
     if (requestError.name === 'AbortError') throw requestError
     throw new Error(
-      `Could not reach the Biteflow API at ${API_ORIGIN}. Check your connection and server CORS settings.`,
+      `Could not reach the Biteflow API at ${API_BASE_URL}. Check your connection and server CORS settings.`,
       { cause: requestError },
     )
   }
@@ -473,7 +473,7 @@ function AuthModal({ onClose, onAuthenticated }) {
 
     try {
       const response = await fetch(
-        `${API_ORIGIN}/auth/${isRegister ? 'register' : 'login'}`,
+        `${API_BASE_URL}/auth/${isRegister ? 'register' : 'login'}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -682,7 +682,7 @@ function OrderSheet({ reel, onClose, onRequireAuth, onSuccess }) {
         try {
           let response
           try {
-            response = await fetch(`${API_ORIGIN}/orders`, {
+            response = await fetch(`${API_BASE_URL}/orders`, {
               method: 'POST',
               headers: getAuthHeaders(token),
               body: JSON.stringify({
@@ -694,7 +694,7 @@ function OrderSheet({ reel, onClose, onRequireAuth, onSuccess }) {
             })
           } catch (requestError) {
             throw new Error(
-              `Could not reach the Biteflow API at ${API_ORIGIN}. Check your connection and server CORS settings.`,
+              `Could not reach the Biteflow API at ${API_BASE_URL}. Check your connection and server CORS settings.`,
               { cause: requestError },
             )
           }

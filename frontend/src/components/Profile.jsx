@@ -8,8 +8,7 @@ import {
   Plus,
   ShoppingBag,
 } from 'lucide-react'
-
-const API_ORIGIN = 'https://crispy-waffle-7vjrgrx67pww2w55w-8000.app.github.dev'
+import { API_BASE_URL } from '../api.js'
 const BITE_FILTERS = [
   { id: 'mine', label: 'My Bites' },
   { id: 'liked', label: 'Liked' },
@@ -19,7 +18,7 @@ const BITE_FILTERS = [
 async function fetchJson(path, token, signal) {
   let response
   try {
-    response = await fetch(`${API_ORIGIN}${path}`, {
+    response = await fetch(`${API_BASE_URL}${path}`, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
